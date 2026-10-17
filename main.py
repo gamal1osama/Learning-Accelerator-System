@@ -106,7 +106,7 @@ def run_session(goal: str, session_id: str | None = None) -> None:
             return
         raise
 
-    # ── Handle human-in-the-loop interrupt ────────────────────────────
+    # Handle human-in-the-loop interrupt
     # When the graph hits interrupt(), it pauses and returns with
     # "__interrupt__" in the result. We collect user input and resume.
     while "__interrupt__" in result:
@@ -141,7 +141,7 @@ def run_session(goal: str, session_id: str | None = None) -> None:
         # Resume the graph with the user's decision
         result = graph.invoke(Command(resume=user_input), config=config)
 
-    # ── Handle errors ─────────────────────────────────────────────────
+    # Handle errors 
     if result.get("error"):
         print(f"\n[ERROR] {result['error']}")
         return
