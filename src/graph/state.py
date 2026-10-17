@@ -194,10 +194,22 @@ def get_current_topic(state: dict) -> Topic | None:
     roadmap = state.get("roadmap")
     if roadmap is None:
         return None
+
+    # After checkpoint deserialization, roadmap may be a dict
+    if isinstance(roadmap, dict):
+        topics_raw = roadmap.get("topics", [])
+    else:
+        topics_raw = roadmap.topics
+
     idx = state.get("current_topic_index", 0)
-    if idx >= len(roadmap.topics):
+    if idx >= len(topics_raw):
         return None
-    return roadmap.topics[idx]
+
+    t = topics_raw[idx]
+    # Individual topics may also be dicts after deserialization
+    if isinstance(t, dict):
+        return Topic.from_dict(t)
+    return t
 
 def get_latest_quiz_result(state: dict) -> QuizResult | None:
     """Get the most recent quiz result, or None if no quizzes have run."""
@@ -219,8 +231,9 @@ def session_is_complete(state: dict) -> bool:
     roadmap = state.get("roadmap")
     if roadmap is None:
         return True
+    topics = roadmap.get("topics", []) if isinstance(roadmap, dict) else roadmap.topics
     idx = state.get("current_topic_index", 0)
-    return idx >= len(roadmap.topics)
+    return idx >= len(topics)
 
 
 
