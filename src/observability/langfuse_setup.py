@@ -15,8 +15,6 @@ def _langfuse_configured() -> bool:
     return bool(public_key and secret_key)
 
 
-
-
 def get_langfuse_handler(session_id: str, user_id: str = "local"):
     """
     Create a Langfuse callback handler for a session, or None if not configured.
@@ -31,24 +29,14 @@ def get_langfuse_handler(session_id: str, user_id: str = "local"):
     try:
         from langfuse.langchain import CallbackHandler
 
-        return CallbackHandler(
-            public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
-            secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
-            host=os.getenv("LANGFUSE_HOST", "http://localhost:3000"),
-            session_id=session_id,
-            user_id=user_id,
-            tags=["learning-accelerator", "local-inference"],
-            metadata={
-                "model":     os.getenv("OLLAMA_MODEL", "qwen2.5:7b"),
-                "framework": "langgraph",
-            },
-        )
+        return CallbackHandler()
     except ImportError:
         print("[Observability] langfuse not installed. Run: pip install langfuse")
         return None
     except Exception as e:
         print(f"[Observability] Failed to create handler: {e}")
         return None
+
 
 def get_langfuse_config(
     session_id: str,
@@ -58,9 +46,10 @@ def get_langfuse_config(
     """
     Build the complete LangGraph run config for a session.
 
-    Merges the checkpoint thread_id with the Langfuse callback handler.
-    This is the only function main.py calls. One function, one config dict,
-    everything set up.
+    Merges the checkpoint thread_id with the Langfuse callback handler and
+    the trace attributes LangGraph forwards to the handler through run
+    metadata. This is the only function main.py calls. One function, one
+    config dict, everything set up.
 
     Returns a dict ready to pass as `config` to graph.invoke().
     """
@@ -74,6 +63,13 @@ def get_langfuse_config(
     handler = get_langfuse_handler(session_id, user_id)
     if handler:
         config["callbacks"] = [handler]
+        config["metadata"] = {
+            "langfuse_session_id": session_id,
+            "langfuse_user_id": user_id,
+            "langfuse_tags": ["learning-accelerator", "local-inference"],
+            "model": os.getenv("OLLAMA_MODEL", "qwen2.5:7b"),
+            "framework": "langgraph",
+        }
         print(f"[Observability] Tracing session {session_id} → "
               f"{os.getenv('LANGFUSE_HOST', 'http://localhost:3000')}")
     else:
@@ -93,7 +89,7 @@ def flush_langfuse() -> None:
     if not _langfuse_configured():
         return
     try:
-        from langfuse import Langfuse
-        Langfuse().flush()
+        from langfuse import get_client
+        get_client().flush()
     except Exception:
         pass  # Best-effort. Don't crash on exit.
