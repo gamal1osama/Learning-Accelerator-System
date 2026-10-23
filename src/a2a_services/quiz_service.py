@@ -28,10 +28,14 @@ import sys
 import uuid
 from pathlib import Path
 
+import uvicorn
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
+
 # Ensure src/ is on path when running as script
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import uvicorn
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.events import EventQueue
