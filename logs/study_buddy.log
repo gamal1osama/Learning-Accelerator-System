@@ -1,0 +1,17 @@
+[CrewAI Study Buddy] Starting on http://localhost:9002
+[CrewAI Study Buddy] Agent Card: http://localhost:9002/.well-known/agent-card.json
+[CrewAI Study Buddy] This is a CrewAI agent served via A2A
+[CrewAI Study Buddy] Press Ctrl+C to stop
+
+[Study Buddy A2A] Request: topic='Topic 0', weak_areas=['late binding']
+[Study Buddy A2A] Task complete (201 chars)
+[Study Buddy A2A] Request: topic='Topic 0', weak_areas=['late binding']
+[Study Buddy A2A] Task complete (186 chars)
+[Study Buddy A2A] Request: topic='Topic 0', weak_areas=['late binding']
+[Study Buddy A2A] Request: topic='Topic 0', weak_areas=['late binding']
+[Study Buddy A2A] Task complete (1378 chars)
+[Study Buddy A2A] Task complete (1382 chars)
+[Study Buddy A2A] Request: topic='Topic 0', weak_areas=['late binding']
+[Study Buddy A2A] Task complete (1613 chars)
+[Study Buddy A2A] Request: topic='Topic 0', weak_areas=['late binding']
+[Study Buddy A2A] Task complete (1380 chars)
