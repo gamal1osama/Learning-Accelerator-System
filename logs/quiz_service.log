@@ -4,21 +4,23 @@
 [Quiz A2A Service] Agent Card: http://localhost:9001/.well-known/agent-card.json
 [Quiz A2A Service] Press Ctrl+C to stop
 
+[Quiz A2A] Task received: topic='Python Basics', answers_provided=3
+[Quiz Generator] LLM call failed during grading: prediction aborted, token repeat limit reached (status code: -1)
+[Quiz A2A] Task complete: status=graded
+[Quiz A2A] Task received: topic='Functions in Python', answers_provided=3
+[Quiz A2A] Task complete: status=graded
 [Quiz A2A] Task received: topic='Topic 0', answers_provided=0
 [Quiz A2A] Task complete: status=questions_ready
 [Quiz A2A] Task received: topic='Topic 0', answers_provided=0
 [Quiz A2A] Task complete: status=questions_ready
 [Quiz A2A] Task received: topic='Topic 0', answers_provided=0
-[Quiz A2A] Task complete: status=questions_ready
-[Quiz A2A] Task received: topic='Topic 0', answers_provided=0
-[Quiz A2A] Task complete: status=questions_ready
-[Quiz A2A] Task received: topic='Topic 0', answers_provided=0
-[Quiz A2A] Task complete: status=questions_ready
-[Quiz A2A] Task received: topic='Topic 0', answers_provided=0
-[Quiz A2A] Task complete: status=questions_ready
 [Quiz A2A] Task received: topic='Topic 0', answers_provided=0
 [Quiz A2A] Task received: topic='Topic 0', answers_provided=0
 [Quiz A2A] Task complete: status=questions_ready
+[Quiz Generator] LLM call failed during question generation: prediction aborted, token repeat limit reached (status code: -1)
+[Quiz A2A] Task complete: status=questions_ready
+[Quiz A2A] Task complete: status=questions_ready
+[Quiz A2A] Task received: topic='Topic 0', answers_provided=0
 [Quiz A2A] Task complete: status=questions_ready
 [Quiz A2A] Task received: topic='Topic 0', answers_provided=0
 [Quiz A2A] Task complete: status=questions_ready
