@@ -5,6 +5,9 @@ notes, quizzes you, and adapts based on how well you actually understand the
 material. Everything runs locally through Ollama. Nothing about you leaves
 your machine except the LLM inference endpoint you choose.
 
+Session flow is identical across both interfaces: terminal (main.py) and web
+(Streamlit). Same graph, same agents, same services.
+
 The system is orchestrated by LangGraph and demonstrates three distinct
 agentic patterns working together:
 
@@ -67,6 +70,7 @@ Workflow per topic:
 | Cross framework A2A | LangGraph can call CrewAI through a protocol contract |
 | Observability | Langfuse traces for every LLM call, tool call, and agent step |
 | Checkpointing | Any session can be stopped and resumed with its session ID |
+| Two interfaces | Full session in the terminal (`make run`) or the browser (`make streamlit`), identical graph underneath |
 
 ## Requirements
 
@@ -87,7 +91,9 @@ OLLAMA_MODEL=qwen2.5:7b
 OLLAMA_BASE_URL=http://localhost:11434
 ```
 
-Pull the model and start:
+Pull the model and start. Pick your interface:
+
+Terminal:
 
 ```bash
 ollama pull qwen2.5:7b
@@ -97,13 +103,22 @@ make services    # start both A2A services in the background
 make run
 ```
 
+Or the web interface:
+
+```bash
+make services
+make streamlit   # then open http://localhost:8501
+```
+
 The program asks for a study goal, shows a proposed roadmap, waits for your
 approval, then teaches, quizzes, and coaches you topic by topic. You can exit
 at any point and resume later with `make resume SESSION=<session id>`.
 
 ## How to use it
 
-From your point of view the session is a simple terminal conversation:
+From your point of view the session is a simple terminal conversation
+(the Streamlit interface mirrors every step in the browser, see
+"The Streamlit web interface" below):
 
 1. **Start the app** with a goal in natural language:
 
@@ -147,6 +162,53 @@ From your point of view the session is a simple terminal conversation:
 
 Your notes live in the `NOTES_PATH` directory as markdown files. Add your
 own notes there and the Explainer will teach from them.
+
+## The Streamlit web interface
+
+Prefer a browser over the terminal? Run:
+
+```bash
+make services
+make streamlit
+```
+
+Then open http://localhost:8501. The interface walks through five screens:
+
+| Screen | What you do |
+|---|---|
+| GOAL_INPUT | Type what you want to learn, click "Build Study Plan" |
+| ROADMAP_APPROVAL | Review topics with prerequisites and time estimates; approve or ask for a new plan |
+| EXPLAINING | Read the explanation grounded in your notes, see the coach tip from the last topic, click "Start Quiz" |
+| QUIZZING | Answer one question at a time in a text box; each answer is graded instantly with feedback and score; continue to the next topic when the quiz finishes |
+| COMPLETE | Session summary: per-topic scores, overall average, topics to revisit, your session ID |
+
+What stays the same as terminal mode:
+
+* The **same LangGraph graph** with the same agents, MCP tools, A2A
+  delegation, and Langfuse tracing
+* The **same quiz engine**: questions generated and answers graded by
+  the identical functions the terminal flow uses
+* Roadmap approval via human in the loop interrupt, and the
+  Progress Coach loop from topic to topic
+
+What is different:
+
+* Quiz answers are typed in a text area instead of the terminal
+* One **graceful unfinished-topic flow**: if you refresh or close the
+  browser mid session, your progress stays in the checkpoint database
+  (`data/checkpoints_ui.db`), a separate file from the terminal's
+  `data/checkpoints.db`, so web and terminal sessions never clobber
+  each other
+* Cross resume is not available between interfaces: browser sessions are
+  checkpointed in `checkpoints_ui.db` while `make resume
+  SESSION=<id>` reads the terminal checkpoint `checkpoints.db`. Take
+  the session ID from the COMPLETE screen of a terminal session to use
+  `make resume`
+
+Nothing needs to change between interfaces: you can study one session in
+the browser and finish it in the terminal, and the A2A services
+(`make services`) power both. Missing services are not an error, the
+Progress Coach falls back to local generation invisibly.
 
 ## How the project works
 
@@ -355,7 +417,8 @@ files to ground its explanations in your material.
 | Target | Description |
 |---|---|
 | `make setup` | Create venv, install dependencies, copy `.env` |
-| `make run` | Run the main application |
+| `make run` | Run the main application (terminal) |
+| `make streamlit` | Run the web interface at http://localhost:8501 |
 | `make run-goal GOAL='Learn async Python'` | Run with a custom goal |
 | `make resume SESSION=abc12345` | Resume a saved session |
 | `make services` | Start both A2A services in the background |
@@ -398,7 +461,8 @@ src/
   observability/       Langfuse configuration
 study_materials/       Your notes (markdown). Samples included
 tests/                 Unit and evaluation test suites
-main.py                Entry point and interrupt resume loop
+main.py                Entry point and interrupt resume loop (terminal)
+streamlit_app.py       Web interface (same graph, UI state machine)
 Makefile               One command targets for everything above
 ```
 
