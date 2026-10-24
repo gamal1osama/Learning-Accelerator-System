@@ -46,18 +46,22 @@ Question: {question}
 Model answer: {expected_answer}
 Student's answer: {student_answer}
 
-Grade the student's answer honestly. Be generous with partial credit:
+Grade the answer fairly and consistently. Use this rubric:
   - Fundamentally correct with minor gaps: 0.7-0.9
   - Correct concept but imprecise: 0.5-0.7
   - Partially correct: 0.3-0.5
   - Fundamentally wrong: 0.0-0.2
+  - Non-answer ("I don't know", blank, off topic): 0.0
+
+Do not invent credit for an answer that says nothing. If the student
+does not address the question, the score must be 0.0 and "correct" false.
 
 Return ONLY valid JSON with no prose or markdown:
 {{
   "correct": true,
-  "score": 0.85,
+  "score": 0.0,
   "feedback": "One specific sentence of feedback",
-  "missing_concept": "Key concept missed, or empty string if answer is correct"
+  "missing_concept": ""
 }}
 """
 
@@ -109,7 +113,8 @@ def grade_answer(question: str, expected: str, student_answer: str) -> dict:
 
     try:
         response = llm.invoke([HumanMessage(content=prompt)])
-        return json.loads(response.content)
+        raw = json.loads(response.content)
+        return _normalize_grade(raw)
     except Exception as e:
         print(f"[Quiz Generator] LLM call failed during grading: {e}")
         return {
@@ -118,6 +123,46 @@ def grade_answer(question: str, expected: str, student_answer: str) -> dict:
             "feedback": "Could not grade automatically. Please review manually.",
             "missing_concept": "",
         }
+
+
+def _normalize_grade(raw: dict) -> dict:
+    """
+    Enforce internal consistency in the judge's output.
+
+    Small judge models sometimes contradict themselves (e.g. return
+    "correct": false together with "score": 0.85, or copy the prompt's
+    placeholder text into missing_concept). This normalises the result so
+    scores always agree with the correct flag and stay in range.
+    """
+    try:
+        score = float(raw.get("score", 0.0))
+    except (TypeError, ValueError):
+        score = 0.0
+    score = max(0.0, min(1.0, score))
+
+    correct = bool(raw.get("correct", False))
+    # The judge's binary verdict overrides a generous numeric score
+    if correct and score < 0.5:
+        score = 0.5
+    if not correct and score >= 0.5:
+        score = 0.45
+
+    missing = str(raw.get("missing_concept", "")).strip()
+    # Defensive massaging of the placeholder the model sometimes copies
+    GENERIC = "key concept missed"
+    if missing.lower().replace(",", " ").split() and (
+        missing.lower().startswith(GENERIC)
+        or "empty string" in missing.lower()
+        or len(missing) > 120
+    ):
+        missing = ""
+
+    return {
+        "correct": correct,
+        "score": score,
+        "feedback": str(raw.get("feedback", "")).strip(),
+        "missing_concept": missing,
+    }
 
 
 def run_quiz(topic: str, explanation: str) -> QuizResult:
