@@ -96,6 +96,57 @@ with `graph.invoke(Command(resume=user_input), config=config)`.
 The same mechanism works for web UIs, the only difference is how
 input is collected.
 
+```python
+# streamlit_app.py: a second compiled graph for the web interface
+ui_graph = build_graph(
+    db_path="data/checkpoints_ui.db",
+    interrupt_before=["quiz_generator"],
+)
+```
+
+---
+
+## Web interface (Streamlit)
+
+`streamlit_app.py` runs the identical graph with a different I/O harness.
+The design goal: zero changes to any agent node or the quiz generator.
+
+### How the UI takes over quiz I/O
+
+`input()` blocks Streamlit, so the UI compiles a second graph instance with
+`interrupt_before=["quiz_generator"]`. The graph now pauses at a known point
+where the quiz has not run yet, but the Explainer has finished, so the UI
+can:
+
+1. Extract the explanation from message history
+2. Generate questions directly with `generate_questions()` (the same
+   function `quiz_generator_node` uses)
+3. Collect and grade answers in the browser with `grade_answer()`
+4. Inject the fabricated `QuizResult` into the checkpoint:
+
+```python
+ui_graph.update_state(config, {...quiz result...}, as_node="quiz_generator")
+ui_graph.invoke(None, config=config)   # resumes at progress_coach
+```
+
+`update_state(..., as_node="quiz_generator")` records the result as if the
+node had executed, so `invoke(None)` continues at `progress_coach` without
+re-running the quiz node. The graph logic, A2A delegation, and coach loop
+are literally identical to terminal mode.
+
+### Separate checkpoint file
+
+The UI graph uses `data/checkpoints_ui.db` so web and terminal sessions
+cannot corrupt each other's checkpoint threads. Two concurrent interfaces
+use the same architecture with independent persistence.
+
+### UI state machine
+
+The app is a five screen state machine (GOAL_INPUT → ROADMAP_APPROVAL →
+EXPLAINING → QUIZZING → COMPLETE) driven by Streamlit session state and
+`st.rerun()`. Transitions that require the graph call `invoke()` inside
+spinners, keeping the UI responsive during LLM calls.
+
 ---
 
 ## Why MCP
@@ -139,8 +190,8 @@ can request quiz generation and grading without importing our code.
 ```
 Progress Coach (LangGraph)
   1. GET /.well-known/agent-card.json  → discover capabilities
-  2. POST /tasks/send                  → submit task (JSON-RPC 2.0)
-  3. Parse result from artifacts[0].parts[0].text
+  2. POST / (JSON-RPC 2.0 message/send)
+  3. Parse result from result.parts[0].text
 ```
 
 ### Circuit breaker pattern

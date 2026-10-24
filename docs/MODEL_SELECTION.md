@@ -53,6 +53,18 @@ Low temperature = more consistent JSON. Higher temperature = more
 varied explanations and coaching messages. Never use temperature > 0.5
 for any agent that produces structured output.
 
+## Judge consistency
+
+LLM as judge grading is normalized in `_normalize_grade()` in
+`agents/quiz_generator.py`: scores are clamped to 0.0 to 1.0 and the
+binary "correct" verdict overrides a contradictory generous numeric
+score (small models sometimes return `correct: false` with an inflated
+score). The grading prompt anchors away from example numbers and has a
+dedicated 0.0 rubric bucket for non-answers such as "I don't know".
+
+If you switch to a stronger judge model, grading gets sharper, but the
+normalization applies regardless, so both interfaces stay consistent.
+
 ---
 
 ## Switching models
