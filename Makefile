@@ -11,7 +11,8 @@
 #   make eval       : run LLM-as-judge evaluation tests
 #   make clean      : remove generated files
 
-.PHONY: setup run streamlit services stop langfuse test eval clean help
+.PHONY: setup run streamlit run-goal resume services stop langfuse langfuse-stop \
+        langfuse-logs test eval test-all clean clean-all help
 
 VENV = .venv
 PYTHON = $(VENV)/bin/python
@@ -41,6 +42,8 @@ run:
 	$(PYTHON) main.py
 
 streamlit:
+	@test -f streamlit_app.py || { \
+		echo "streamlit_app.py not found in repo yet"; exit 1; }
 	@echo "Starting Learning Accelerator (Streamlit UI)..."
 	@echo "Open: http://localhost:8501"
 	$(PYTHON) -m streamlit run streamlit_app.py
@@ -57,21 +60,25 @@ resume:
 
 services: stop
 	@echo "Starting A2A services..."
-	$(PYTHON) src/a2a_services/quiz_service.py &
+	@mkdir -p logs
+	$(PYTHON) -u src/a2a_services/quiz_service.py > logs/quiz_service.log 2>&1 &
 	@sleep 1
-	$(PYTHON) src/crewai_agent/study_buddy.py &
+	$(PYTHON) -u src/crewai_agent/study_buddy.py > logs/study_buddy.log 2>&1 &
 	@sleep 1
 	@echo ""
 	@echo "Services started:"
 	@echo "  Quiz Generator:  http://localhost:9001/.well-known/agent-card.json"
 	@echo "  CrewAI Study Buddy: http://localhost:9002/.well-known/agent-card.json"
+	@echo "  (logs: logs/quiz_service.log, logs/study_buddy.log)"
 	@echo ""
 	@echo "Run 'make run' to start the main application"
 
 stop:
 	@echo "Stopping A2A services..."
-	@pkill -f "quiz_service.py" 2>/dev/null || true
-	@pkill -f "study_buddy.py" 2>/dev/null || true
+	# [b]racket trick: prevents pkill from matching (and killing) its own
+	# recipe shell, which otherwise aborts the target with 'Terminated'
+	@pkill -f "[q]uiz_service.py" 2>/dev/null || true
+	@pkill -f "[s]tudy_buddy.py" 2>/dev/null || true
 	@echo "Services stopped"
 
 # Observability
