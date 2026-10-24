@@ -46,7 +46,7 @@ streamlit:
 		echo "streamlit_app.py not found in repo yet"; exit 1; }
 	@echo "Starting Learning Accelerator (Streamlit UI)..."
 	@echo "Open: http://localhost:8501"
-	$(PYTHON) -m streamlit run streamlit_app.py
+	$(PYTHON) -m streamlit run streamlit_app.py --server.headless=true
 
 run-goal:
 	@echo "Starting with custom goal: $(GOAL)"
