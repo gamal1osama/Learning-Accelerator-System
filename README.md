@@ -22,8 +22,8 @@ agentic patterns working together:
 
 ```
 +============================================================+
-|                          main.py                            |
-|                 (entry point, interrupt loop)               |
+|                          main.py                           |
+|                 (entry point, interrupt loop)              |
 +============================================================+
                              |
                    LangGraph (state graph)
