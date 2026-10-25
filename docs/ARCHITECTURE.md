@@ -21,18 +21,23 @@ Accelerator multi-agent system.
 └─────────────────────────────────────────────────────────────┘
          │ MCP (tools)              │ A2A (agents)
          ▼                          ▼
-┌──────────────────┐    ┌─────────────────────┐  ┌──────────────────────┐
-│  Filesystem MCP  │    │  Quiz Generator A2A  │  │ CrewAI Study Buddy   │
-│  Memory MCP      │    │  (port 9001)         │  │ A2A (port 9002)      │
-└──────────────────┘    └─────────────────────┘  └──────────────────────┘
-         │                                                │
-         ▼                                                ▼
+┌──────────────────┐    ┌─────────────────────┐
+│  Filesystem MCP  │    │  Quiz Generator A2A  │  ┌──────────────────────┐
+│  Memory MCP      │    │  (port 9001)         │  │ CrewAI Study Buddy   │
+└──────────────────┘    └─────────────────────┘  │ A2A (port 9002)      │
+                                                └──────────────────────┘
+                        every LLM call
+                              ▼
 ┌──────────────────────────────────────────────────────────────┐
-│                      Ollama (localhost:11434)                 │
-│              qwen2.5:7b  |  qwen2.5-coder:32b                │
+│              LiteLLM gateway (localhost:4000)                 │
+│   model alias "notes-helper" → routing per litellm_config     │
 └──────────────────────────────────────────────────────────────┘
-         │
-         ▼
+                              ▼
+┌──────────────────────────────────────────────────────────────┐
+│                      Ollama endpoint                          │
+│   localhost:11434 or remote (ngrok/HTTPS) · qwen2.5:7b       │
+└──────────────────────────────────────────────────────────────┘
+                              ▼
 ┌──────────────────────────────────────────────────────────────┐
 │                 Langfuse (localhost:3000)                     │
 │         Full traces · Token counts · Latency per agent       │
@@ -248,16 +253,17 @@ before the process terminates.
 
 | Tier | Command | Speed | Dependencies |
 |---|---|---|---|
-| Unit | `pytest tests/ -m "not eval"` | ~3s | None |
-| Eval | `pytest tests/test_eval.py -m eval` | ~90s | Ollama |
+| Unit | `pytest tests/ -m "not eval"` | ~5s | None (gateway mocked) |
+| Eval | `pytest tests/test_eval.py -m eval` | ~90s | LiteLLM gateway |
 
 Unit tests mock all LLM calls and test parsing, routing, and tool
 logic deterministically. Eval tests run the actual agents and use
-LLM-as-judge (via DeepEval + local Ollama) to score output quality.
+LLM-as-judge (via DeepEval through the LiteLLM gateway) to score
+output quality.
 
 ### Key test patterns
 
-- **Agent node tests**: mock `ChatOllama`, test state transformation
+- **Agent node tests**: mock the LLM factory (`agents.*.build_llm`), test state transformation
 - **Routing tests**: call routing functions directly with crafted state
 - **MCP tests**: call tool functions directly (no subprocess needed)
 - **A2A tests**: mock `httpx` for all network calls
@@ -316,5 +322,33 @@ For deploying beyond local development:
 - Replace `MemoryServer._store` dict with Redis
 - Add authentication to A2A services (`AgentAuthentication`)
 - Run MCP servers as separate processes via stdio transport
-- Use LiteLLM proxy for rate limiting and model fallbacks
+- Use LiteLLM's built-in rate limiting and budget checks (enable them in
+  `litellm_config.yaml`; the gateway already runs from
+  `docker-compose.gateway.yml`)
 - Add structured logging to replace print statements
+
+## The LLM gateway layer
+
+Every agent builds its chat model through one factory: `src/llm/client.py`.
+The factory returns an OpenAI-compatible `ChatOpenAI` pointing at the
+LiteLLM gateway (`LITELLM_BASE_URL`), using the alias registered in
+`litellm_config.yaml` (`LITELLM_MODEL`).
+
+Why a gateway around Ollama instead of calling Ollama directly:
+
+1. **One config surface for inference**: model, provider, fallbacks live in
+   YAML. Changing Ollama model or switching providers never touches agent
+   code.
+2. **Fallback routing**: uncommenting the example entries in
+   `litellm_config.yaml` gives GPT-4 → Claude → local Ollama failover; the
+   agents cannot see the difference.
+3. **Cross-provider compatibility shim**: LiteLLM translates
+   `response_format` (JSON mode), tool-call schemas, and unsupported
+   parameters (`drop_params: true`) per provider.
+
+CrewAI, in the Study Buddy service, uses its own LLM client class, which
+is configured to the same gateway with the `openai/<alias>` model prefix —
+same protocol, same routing. CrewAI can only resolve such aliases with the
+litellm SDK installed; that light package stays in the venv (the gateway
+server itself never runs from the venv — it is the
+`docker-compose.gateway.yml` container).

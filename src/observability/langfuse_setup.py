@@ -2,6 +2,8 @@
 
 import os
 
+from llm.client import get_base_url, get_model_name
+
 
 def _langfuse_configured() -> bool:
     """
@@ -13,7 +15,6 @@ def _langfuse_configured() -> bool:
     public_key = os.getenv("LANGFUSE_PUBLIC_KEY", "").strip()
     secret_key = os.getenv("LANGFUSE_SECRET_KEY", "").strip()
     return bool(public_key and secret_key)
-
 
 def get_langfuse_handler(session_id: str, user_id: str = "local"):
     """
@@ -66,8 +67,9 @@ def get_langfuse_config(
         config["metadata"] = {
             "langfuse_session_id": session_id,
             "langfuse_user_id": user_id,
-            "langfuse_tags": ["learning-accelerator", "local-inference"],
-            "model": os.getenv("OLLAMA_MODEL", "qwen2.5:7b"),
+            "langfuse_tags": ["learning-accelerator", "gated-inference"],
+            "model": get_model_name(),
+            "gateway": get_base_url(),
             "framework": "langgraph",
         }
         print(f"[Observability] Tracing session {session_id} → "

@@ -15,14 +15,12 @@ import os
 from datetime import datetime, timezone
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_ollama import ChatOllama
 
 from graph.state import QuizResult, StudyRoadmap, get_latest_quiz_result
+from llm import build_llm
 from mcp_servers.memory_server import memory_set
 
 
-MODEL_NAME = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 PASS_THRESHOLD = 0.5
 
 # A2A service URL, read from env so it's configurable
@@ -49,12 +47,7 @@ Never be discouraging. A low score means "more practice needed", not "you failed
 
 def get_coaching_message(topic: str, score: float, weak_areas: list[str]) -> dict:
     """Ask the LLM for a personalised coaching message."""
-    llm = ChatOllama(
-        model=MODEL_NAME,
-        base_url=OLLAMA_BASE_URL,
-        temperature=0.4,
-        format="json",
-    )
+    llm = build_llm(temperature=0.4, json_mode=True)
     
     context = {
         "topic":         topic,

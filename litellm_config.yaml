@@ -1,0 +1,42 @@
+# litellm_config.yaml
+# LiteLLM gateway configuration for the Learning Accelerator.
+#
+# The app always talks to the gateway (LITELLM_BASE_URL) using the
+# alias below (LITELLM_MODEL). The alias resolves to the deployment
+# backend(s) listed here. Start with: make gateway
+# Health check: curl http://localhost:4000/v1/models
+
+model_list:
+  # ── Primary: local Ollama ────────────────────────────────────────────
+  # ollama_chat/<model> uses Ollama's /api/chat protocol, which is what
+  # tool calling needs (the raw `ollama/` prefix maps to /api/generate
+  # instead). The model must match something you pulled:
+  #   ollama pull qwen2.5:7b
+  - model_name: notes-helper
+    litellm_params:
+      model: ollama_chat/qwen2.5:7b
+      api_base: os.environ/OLLAMA_BASE_URL
+
+  # ── Optional fallback routing (commented out) ─────────────────────────
+  # Uncomment to route GPT-4 primary with Claude and Ollama as fallbacks,
+  # then switch LITELLM_MODEL to `notes-helper-gpt4` in .env. Agent code
+  # needs no changes; the gateway does the failover transparently.
+  # - model_name: notes-helper-gpt4
+  #   litellm_params:
+  #     model: openai/gpt-4
+  #     api_key: os.environ/OPENAI_API_KEY
+  # - model_name: notes-helper-claude
+  #   litellm_params:
+  #     model: anthropic/claude-sonnet-4
+  #     api_key: os.environ/ANTHROPIC_API_KEY
+  # litellm_settings:
+  #   fallbacks:
+  #     - { "notes-helper-gpt4": ["notes-helper-claude", "notes-helper"] }
+
+litellm_settings:
+  # Drop parameters a given provider cannot handle instead of failing
+  # the request (e.g. response_format on providers without JSON mode).
+  drop_params: true
+
+# general_settings:
+#   master_key: os.environ/LITELLM_MASTER_KEY   # enable to require real keys

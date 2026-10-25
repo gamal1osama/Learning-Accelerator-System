@@ -3,7 +3,7 @@ tests/test_eval.py
 
 LLM-as-judge evaluation tests for the Learning Accelerator.
 
-TIER 2 TESTS, require Ollama running locally.
+TIER 2 TESTS, require the LiteLLM gateway running (make gateway).
 These tests are slow (30-120s each) and non-deterministic.
 Run them before significant changes, not during development.
 
@@ -34,38 +34,39 @@ import pytest
 
 # DeepEval configuration
 #
-# Configure DeepEval to use Ollama as the judge model.
-# This keeps evaluation entirely local, no OpenAI key required.
+# Configure DeepEval to use the LiteLLM gateway as the judge model.
+# The gateway routes to the configured provider, so evaluation follows
+# the same backend as the rest of the system.
 
 def get_judge_model():
     """
-    Get the DeepEval judge model configured for local Ollama.
+    Get the DeepEval judge model configured for the LiteLLM gateway.
 
-    Uses LiteLLM under the hood to connect to Ollama's OpenAI-compatible API.
-    Returns None if deepeval is not installed.
+    Uses the shared LLM factory, so the judge follows the same gateway
+    routing as the rest of the system. Returns None if deepeval is not
+    installed.
     """
     try:
         from deepeval.models import DeepEvalBaseLLM
-        from langchain_ollama import ChatOllama
 
-        class OllamaJudge(DeepEvalBaseLLM):
+        from llm.client import get_model_name
+
+        class GatewayJudge(DeepEvalBaseLLM):
             """
-            Custom judge model using local Ollama.
+            Custom judge model routed through the LiteLLM gateway.
 
             DeepEval supports custom models via the DeepEvalBaseLLM interface.
-            We wrap ChatOllama to provide the judge capabilities.
+            We wrap the shared factory's chat model to provide judge
+            capabilities.
             """
 
             def __init__(self):
-                self.model_name = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
-                self.base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+                self.model_name = get_model_name()
 
             def load_model(self):
-                return ChatOllama(
-                    model=self.model_name,
-                    base_url=self.base_url,
-                    temperature=0.0,  # Deterministic for evaluation
-                )
+                from llm.client import build_llm
+
+                return build_llm(temperature=0.0)  # Deterministic for evaluation
 
             def generate(self, prompt: str) -> str:
                 model = self.load_model()
@@ -76,9 +77,9 @@ def get_judge_model():
                 return self.generate(prompt)
 
             def get_model_name(self) -> str:
-                return f"ollama/{self.model_name}"
+                return self.model_name
 
-        return OllamaJudge()
+        return GatewayJudge()
     except ImportError:
         return None
 
@@ -146,7 +147,7 @@ class TestExplainerQuality:
         )
 
         if not self.explanation:
-            pytest.skip("Explainer returned empty output, check Ollama is running")
+            pytest.skip("Explainer returned empty output, check the LiteLLM gateway is running")
 
         print(f"[TestExplainerQuality] Explanation length: {len(self.explanation)} chars")
 

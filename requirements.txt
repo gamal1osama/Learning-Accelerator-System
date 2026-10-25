@@ -1,10 +1,14 @@
 # requirements.txt
+# Note: the LiteLLM gateway does NOT come from here. It runs as a docker
+# container (docker-compose.gateway.yml from the official proxy image),
+# so the liteLLM SDK/proxy has no place in the agent venv. Agents talk
+# to it over HTTP via langchain-openai only.
 langgraph==1.1.0
 langgraph-checkpoint==3.0.1
 langgraph-checkpoint-sqlite==3.0.3
 langchain==1.2.11
 langchain-core==1.6.12
-langchain-ollama==1.0.0
+langchain-openai==1.0.3
 
 mcp==1.26.0
 a2a-sdk==0.3.25
@@ -13,10 +17,12 @@ crewai==1.13.0
 langfuse==4.0.1
 deepeval==3.9.1
 
-litellm==1.82.4
 openai==2.8.0
-httpx==0.28.1
-fastapi==0.115.0
+# Light SDK only: crewai's LLM fallback needs it to implement arbitrary
+# OpenAI-compatible model aliases (openai/notes-helper). The gateway
+# SERVER does not come from here - it runs in docker-compose.gateway.yml.
+litellm==1.82.4
+fastapi==0.120.1
 uvicorn==0.34.0
 streamlit==1.43.2
 

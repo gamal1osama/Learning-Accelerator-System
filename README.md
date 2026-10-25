@@ -2,8 +2,10 @@
 
 A multi agent learning system that plans a curriculum, teaches from your own
 notes, quizzes you, and adapts based on how well you actually understand the
-material. Everything runs locally through Ollama. Nothing about you leaves
-your machine except the LLM inference endpoint you choose.
+material. All inference runs through a LiteLLM gateway that routes to your
+Ollama endpoint (local or remote), with optional cloud fallbacks configured
+on the gateway side. Nothing about you leaves your machine except the LLM
+inference endpoints you configure.
 
 Session flow is identical across both interfaces: terminal (main.py) and web
 (Streamlit). Same graph, same agents, same services.
@@ -36,11 +38,17 @@ Planner                      |                                |
    |                         |                                |
    +====> Human Approval ====+                          Progress Coach
            (interrupt)                                        |
-                                                   +==========+===========+
-                                          A2A quiz delegating      A2A study buddy
-                                                   |                      |
-                                             Quiz Service              CrewAI
-                                          (LangGraph :9001)       Study Buddy (:9002)
+                                                    +==========+===========+
+                                           A2A quiz delegating      A2A study buddy
+                                                    |                      |
+                                              Quiz Service              CrewAI
+                                           (LangGraph :9001)       Study Buddy (:9002)
+
+Every LLM call (all agents + both A2A services) goes through:
+                             |
+                   LiteLLM gateway (:4000)
+                             |
+                        Ollama endpoint
 ```
 
 Workflow per topic:
@@ -75,7 +83,7 @@ Workflow per topic:
 ## Requirements
 
 * Python 3.11 or newer
-* Docker (optional, for the Langfuse observability stack)
+* Docker. Required for the LiteLLM gateway; optional for the Langfuse observability stack
 * An Ollama endpoint. Local (`http://localhost:11434`) or remote over HTTPS
 
 ## Quickstart
@@ -84,28 +92,32 @@ Workflow per topic:
 make setup
 ```
 
-Then edit `.env` and set your Ollama endpoint. Example for a local Ollama:
+Then edit `.env` and point the stack at your Ollama endpoint:
 
 ```env
-OLLAMA_MODEL=qwen2.5:7b
+LITELLM_BASE_URL=http://localhost:4000
+LITELLM_API_KEY=sk-local-gateway
+LITELLM_MODEL=notes-helper
 OLLAMA_BASE_URL=http://localhost:11434
 ```
 
-Pull the model and start. Pick your interface:
+Start the gateway, pull the model if needed, then pick your interface:
 
 Terminal:
 
 ```bash
 ollama pull qwen2.5:7b
 
-make langfuse    # optional but recommended
-make services    # start both A2A services in the background
+make gateway      # LiteLLM gateway (docker) on :4000, routes to Ollama
+make langfuse     # optional but recommended
+make services     # start both A2A services in the background
 make run
 ```
 
 Or the web interface:
 
 ```bash
+make gateway
 make services
 make streamlit   # then open http://localhost:8501
 ```
@@ -400,23 +412,31 @@ All configuration lives in `.env` (copy from `.env.example`):
 
 | Variable | Purpose |
 |---|---|
-| `OLLAMA_MODEL` | Model name, e.g. `qwen2.5:7b` |
-| `OLLAMA_BASE_URL` | Ollama endpoint, local or ngrok or LAN |
+| `LITELLM_BASE_URL` | Gateway endpoint the agents call (default `http://localhost:4000`) |
+| `LITELLM_API_KEY` | Key the app sends as Bearer. Unenforced in local mode (127.0.0.1-only gateway) |
+| `LITELLM_MODEL` | Model alias registered in `litellm_config.yaml` (default `notes-helper`) |
+| `OLLAMA_BASE_URL` | Where the **gateway** reaches Ollama (used by `litellm_config.yaml`) |
 | `CHECKPOINT_DB` | SQLite checkpoint database path |
 | `NOTES_PATH` | Directory with your markdown notes |
 | `LANGFUSE_*` | Langfuse keys. Leave empty to disable tracing |
 | `QUIZ_SERVICE_URL` / `STUDY_BUDDY_URL` | A2A endpoints |
 | `USE_A2A_QUIZ` / `USE_STUDY_BUDDY` | A2A feature toggles |
 
-Put your own notes in the `NOTES_PATH` directory (sample notes on Python
-closures, decorators, and basics are included). The Explainer searches these
-files to ground its explanations in your material.
+The model name itself lives in `litellm_config.yaml` and must match a model
+you pulled (`ollama pull qwen2.5:7b` by default). Editing that YAML also lets
+you add cloud fallbacks: change the alias list, uncomment the GPT-4/Claude
+entries, restart the gateway, and every agent routes through them
+transparently. Your notes live in the `NOTES_PATH` directory as markdown
+files. Add your own notes there and the Explainer will teach from them.
 
 ## Make targets
 
 | Target | Description |
 |---|---|
 | `make setup` | Create venv, install dependencies, copy `.env` |
+| `make gateway` | Start the LiteLLM gateway container on :4000 (Docker) |
+| `make gateway-stop` | Stop the LiteLLM gateway |
+| `make gateway-logs` | Tail the gateway container logs |
 | `make run` | Run the main application (terminal) |
 | `make streamlit` | Run the web interface at http://localhost:8501 |
 | `make run-goal GOAL='Learn async Python'` | Run with a custom goal |
@@ -424,22 +444,22 @@ files to ground its explanations in your material.
 | `make services` | Start both A2A services in the background |
 | `make stop` | Stop background A2A services |
 | `make langfuse` | Start the Langfuse docker stack |
-| `make test` | Fast unit tests (LLM backed tests excluded) |
-| `make eval` | LLM as judge evaluation suite (~90 seconds) |
+| `make test` | Fast unit tests (no LLM gateway needed) |
+| `make eval` | LLM as judge evaluation suite (~90 seconds, gateway required) |
 | `make clean` | Remove checkpoints, pycache, and pytest cache |
 | `make help` | Full target list |
 
 ## Testing
 
 ```bash
-make test     # fast unit tests, no Ollama required
-make eval     # evaluation suite, requires Ollama
+make test     # fast unit tests, no gateway or Ollama required
+make eval     # evaluation suite, requires the LiteLLM gateway
 ```
 
-The test suite covers A2A client behavior (mocked HTTP), Agent Card
-structure, CrewAI crew construction, checkpoint persistence, MCP servers,
-graph state transitions, and the full agent stack. Evaluation tests measure
-generation quality with an LLM judge.
+The test suite covers the LLM gateway factory, A2A client behavior (mocked
+HTTP), Agent Card structure, CrewAI crew construction, checkpoint
+persistence, MCP servers, graph state transitions, and the full agent stack.
+Evaluation tests measure generation quality with an LLM judge.
 
 ## Observability
 
@@ -457,8 +477,11 @@ src/
   crewai_agent/        CrewAI Study Buddy, served through A2A
   a2a_services/        A2A client helpers and the Quiz service
   graph/               State definitions, workflow graph, checkpointing
+  llm/                 Shared LLM client factory (LiteLLM gateway)
   mcp_servers/         Filesystem and memory MCP tool servers
   observability/       Langfuse configuration
+litellm_config.yaml    Gateway model routing and fallback configuration
+docker-compose.gateway.yml  LiteLLM gateway container definition
 study_materials/       Your notes (markdown). Samples included
 tests/                 Unit and evaluation test suites
 main.py                Entry point and interrupt resume loop (terminal)
@@ -473,16 +496,33 @@ Older pattern matching in the recipe self killed the shell. This repo uses
 bracketed patterns; make sure your checkout is current.
 
 **Curriculum planning is slow**
-Each LLM call goes to Ollama. On a remote endpoint such as ngrok, expect
-several seconds per call. A local GPU makes this much faster.
+Each LLM call travels agent → gateway → Ollama. With a remote endpoint such
+as ngrok, expect several seconds per call. A local GPU makes this much
+faster.
+
+**`make run` warns the gateway is not reachable**
+Start it with `make gateway`. Every agent talks to the LiteLLM gateway on
+`:4000`; without it, all LLM calls fail fast with a connection error.
+
+**Gateway returns "model not found" / 404**
+`litellm_config.yaml` registers the alias your agents use (default
+`notes-helper`) and maps it to an Ollama model. Make sure the Ollama model
+in the config matches something you pulled.
+
+**Requests fail against ngrok / remote Ollama**
+The gateway logs which upstream endpoint it used: check
+`make gateway-logs` (docker logs). Make sure `OLLAMA_BASE_URL` in `.env`
+points at a live endpoint, then `make gateway-stop && make gateway` — the
+container reads `.env` fresh through its `env_file` on every start.
 
 **A2A calls show "service not available"**
 That is the graceful fallback working. Start the services with
 `make services`, or set the feature flags to `false` to skip A2A entirely.
 
 **Study Buddy responds but looks generic**
-The CrewAI agent uses the same Ollama model. Better models, for example
-`qwen2.5:14b` or `qwen2.5-coder:32b`, produce noticeably richer tutoring.
+The model lives in `litellm_config.yaml` via the gateway. Better models, for
+example `qwen2.5:14b` or `qwen2.5-coder:32b`, produce noticeably richer
+tutoring.
 
 ## License
 

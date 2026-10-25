@@ -9,7 +9,7 @@ Tests validate:
   - Progress Coach routing logic
   - State updates after coaching
 
-No Ollama required, all LLM calls are tested via their
+No LLM gateway required, all LLM calls are tested via their
 parsing functions, not the full inference loop.
 
 Run: python -m pytest tests/test_quiz_and_coach.py -v
@@ -52,39 +52,38 @@ class TestGenerateQuestions:
         ]
         return json.dumps({"questions": questions})
 
-    @patch("agents.quiz_generator.ChatOllama")
-    def test_returns_questions_from_valid_json(self, mock_ollama):
+    @patch("agents.quiz_generator.build_llm")
+    def test_returns_questions_from_valid_json(self, mock_build_llm):
         """Valid LLM JSON response should return a list of questions."""
         mock_llm = MagicMock()
         mock_llm.invoke.return_value = MagicMock(content=self._make_valid_json(3))
-        mock_ollama.return_value.bind_tools = MagicMock(return_value=mock_llm)
-        mock_ollama.return_value = mock_llm
+        mock_build_llm.return_value = mock_llm
 
         result = generate_questions("Closures", "explanation text", n=3)
         assert isinstance(result, list)
         assert len(result) == 3
         assert result[0]["question"] == "Question 0?"
 
-    @patch("agents.quiz_generator.ChatOllama")
-    def test_fallback_on_invalid_json(self, mock_ollama):
+    @patch("agents.quiz_generator.build_llm")
+    def test_fallback_on_invalid_json(self, mock_build_llm):
         """Invalid JSON should return one fallback question, not raise."""
         mock_llm = MagicMock()
         mock_llm.invoke.return_value = MagicMock(content="this is not json {{{")
-        mock_ollama.return_value = mock_llm
+        mock_build_llm.return_value = mock_llm
 
         result = generate_questions("Closures", "explanation", n=3)
         assert isinstance(result, list)
         assert len(result) == 1
         assert "Closures" in result[0]["question"]
 
-    @patch("agents.quiz_generator.ChatOllama")
-    def test_fallback_on_missing_questions_key(self, mock_ollama):
+    @patch("agents.quiz_generator.build_llm")
+    def test_fallback_on_missing_questions_key(self, mock_build_llm):
         """JSON without 'questions' key should return fallback."""
         mock_llm = MagicMock()
         mock_llm.invoke.return_value = MagicMock(
             content=json.dumps({"something_else": []})
         )
-        mock_ollama.return_value = mock_llm
+        mock_build_llm.return_value = mock_llm
 
         result = generate_questions("Topic", "explanation", n=2)
         assert len(result) == 1  # fallback
@@ -93,8 +92,8 @@ class TestGenerateQuestions:
 class TestGradeAnswer:
     """Tests for the grading function."""
 
-    @patch("agents.quiz_generator.ChatOllama")
-    def test_returns_grade_dict_from_valid_json(self, mock_ollama):
+    @patch("agents.quiz_generator.build_llm")
+    def test_returns_grade_dict_from_valid_json(self, mock_build_llm):
         """Valid grading JSON should return dict with expected keys."""
         grade_json = json.dumps({
             "correct": True,
@@ -104,19 +103,19 @@ class TestGradeAnswer:
         })
         mock_llm = MagicMock()
         mock_llm.invoke.return_value = MagicMock(content=grade_json)
-        mock_ollama.return_value = mock_llm
+        mock_build_llm.return_value = mock_llm
 
         result = grade_answer("What is a closure?", "A function capturing...", "My answer")
         assert result["correct"] is True
         assert result["score"] == 0.85
         assert "feedback" in result
 
-    @patch("agents.quiz_generator.ChatOllama")
-    def test_safe_default_on_invalid_json(self, mock_ollama):
+    @patch("agents.quiz_generator.build_llm")
+    def test_safe_default_on_invalid_json(self, mock_build_llm):
         """Invalid grading JSON should return safe default, not raise."""
         mock_llm = MagicMock()
         mock_llm.invoke.return_value = MagicMock(content="not json")
-        mock_ollama.return_value = mock_llm
+        mock_build_llm.return_value = mock_llm
 
         result = grade_answer("Q?", "Expected", "Student answer")
         assert "correct" in result
@@ -154,6 +153,21 @@ class TestRouteAfterCoach:
     def test_routes_to_end_without_roadmap(self):
         state = initial_state("test", "s1")
         assert route_after_coach(state) == "end"
+
+
+@pytest.fixture(autouse=True)
+def _isolate_a2a_delegation():
+    """
+    Keep progress-coach tests hermetic and fast: progress_coach_node
+    attempts real A2A delegation when local services are running, which
+    would turn integrity unit tests into slow live LLM calls. A2A
+    behavior is covered in tests/test_a2a.py.
+    """
+    with (
+        patch("agents.progress_coach.try_a2a_quiz_delegation", lambda *a, **k: None),
+        patch("agents.progress_coach.try_study_buddy_assistance", lambda *a, **k: None),
+    ):
+        yield
 
 
 class TestProgressCoachNode:
