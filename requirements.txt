@@ -14,6 +14,19 @@ langfuse==4.0.1
 deepeval==3.9.1
 
 litellm==1.82.4
+# LiteLLM proxy-server runtime deps. `litellm[proxy]==1.82.4` cannot be
+# resolved alongside crewai (the extra caps rich<14, crewai/textual needs
+# rich>=14.2), so the gateway deps are pinned explicitly instead.
+apscheduler==3.11.3
+backoff==2.2.1
+boto3==1.43.118
+cryptography==50.0.2
+email-validator==2.3.0
+fastapi-sso==0.16.0
+orjson==3.13.0
+PyJWT==2.15.1
+python-multipart==0.0.32
+PyYAML==6.0.3
 openai==2.8.0
 httpx==0.28.1
 fastapi==0.120.1
