@@ -1,16 +1,12 @@
 # src/agents/quiz_generator.py
 
 import json
-import os
 from datetime import datetime, timezone
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_ollama import ChatOllama
 
 from graph.state import QuizQuestion, QuizResult, get_current_topic
-
-MODEL_NAME = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+from llm import build_llm
 
 GENERATION_PROMPT = """You are a quiz designer for a student learning programming.
 
@@ -68,12 +64,7 @@ Return ONLY valid JSON with no prose or markdown:
 
 def generate_questions(topic: str, explanation: str, n: int = 3) -> list[dict]:
     """Generate n quiz questions from the Explainer's output."""
-    llm = ChatOllama(
-        model=MODEL_NAME,
-        base_url=OLLAMA_BASE_URL,
-        temperature=0.4,
-        format="json",
-    )
+    llm = build_llm(temperature=0.4, json_mode=True)
 
     prompt = GENERATION_PROMPT.format(n=n)
     try:
@@ -98,11 +89,9 @@ def generate_questions(topic: str, explanation: str, n: int = 3) -> list[dict]:
 
 def grade_answer(question: str, expected: str, student_answer: str) -> dict:
     """Grade a student's answer using the LLM as judge."""
-    llm = ChatOllama(
-        model=MODEL_NAME,
-        base_url=OLLAMA_BASE_URL,
+    llm = build_llm(
         temperature=0.1,   # Analytical: grading must be consistent
-        format="json",
+        json_mode=True,
     )
 
     prompt = GRADING_PROMPT.format(
