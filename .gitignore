@@ -35,3 +35,6 @@ windsurf_batches/
 # Test caches
 .pytest_cache/
 .deepeval/
+
+# Gateway raw debug log (the LiteLLM gateway writes it at runtime)
+logs/litellm_gateway.log
