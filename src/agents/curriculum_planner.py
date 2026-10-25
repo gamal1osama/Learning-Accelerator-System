@@ -1,13 +1,9 @@
 import json
-import os
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_ollama import ChatOllama
 
 from graph.state import StudyRoadmap, Topic
-
-MODEL_NAME = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+from llm import build_llm, get_model_name
 
 PLANNER_SYSTEM_PROMPT = """You are an expert curriculum designer. Your job is to
 create a structured study roadmap when given a learning goal.
@@ -42,14 +38,9 @@ Rules:
 
 
 
-def build_planner_llm() -> ChatOllama:
-    """Create the Ollama LLM client for the Curriculum Planner."""
-    return ChatOllama(
-        model=MODEL_NAME,
-        base_url=OLLAMA_BASE_URL,
-        temperature=0.1,
-        format="json",
-    )
+def build_planner_llm():
+    """Create the LLM client for the Curriculum Planner."""
+    return build_llm(temperature=0.1, json_mode=True)
 
 
 
@@ -121,7 +112,7 @@ def curriculum_planner_node(state: dict) -> dict:
     ]
 
     # Call the LLM. This is a synchronous blocking call.
-    print(f"[Curriculum Planner] Calling {MODEL_NAME}...")
+    print(f"[Curriculum Planner] Calling {get_model_name()}...")
     try:
         response = llm.invoke(messages)
     except Exception as e:
