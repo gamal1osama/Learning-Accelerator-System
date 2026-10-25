@@ -155,6 +155,21 @@ class TestRouteAfterCoach:
         assert route_after_coach(state) == "end"
 
 
+@pytest.fixture(autouse=True)
+def _isolate_a2a_delegation():
+    """
+    Keep progress-coach tests hermetic and fast: progress_coach_node
+    attempts real A2A delegation when local services are running, which
+    would turn integrity unit tests into slow live LLM calls. A2A
+    behavior is covered in tests/test_a2a.py.
+    """
+    with (
+        patch("agents.progress_coach.try_a2a_quiz_delegation", lambda *a, **k: None),
+        patch("agents.progress_coach.try_study_buddy_assistance", lambda *a, **k: None),
+    ):
+        yield
+
+
 class TestProgressCoachNode:
     """Tests for the progress_coach_node function."""
 
