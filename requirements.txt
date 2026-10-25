@@ -18,6 +18,10 @@ langfuse==4.0.1
 deepeval==3.9.1
 
 openai==2.8.0
+# Light SDK only: crewai's LLM fallback needs it to implement arbitrary
+# OpenAI-compatible model aliases (openai/notes-helper). The gateway
+# SERVER does not come from here - it runs in docker-compose.gateway.yml.
+litellm==1.82.4
 fastapi==0.120.1
 uvicorn==0.34.0
 streamlit==1.43.2
