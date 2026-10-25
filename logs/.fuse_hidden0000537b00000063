@@ -1,0 +1,13 @@
+[CrewAI Study Buddy] Starting on http://localhost:9002
+[CrewAI Study Buddy] Agent Card: http://localhost:9002/.well-known/agent-card.json
+[CrewAI Study Buddy] This is a CrewAI agent served via A2A
+[CrewAI Study Buddy] Press Ctrl+C to stop
+
+[Study Buddy A2A] Request: topic='Python functions', weak_areas=['return_statement_necessity']
+[Study Buddy A2A] Task complete (1063 chars)
+[Study Buddy A2A] Request: topic='Function scope and variables', weak_areas=['scope of variables, global vs local, unexpected behavior example']
+[Study Buddy A2A] Task complete (1247 chars)
+[Study Buddy A2A] Request: topic='Inner functions', weak_areas=['closures and lexical scope', 'comparison, scenarios, inner functions, closures']
+[Study Buddy A2A] Task complete (1499 chars)
+[Study Buddy A2A] Request: topic='Closures in Python', weak_areas=['Expected output and closure creation', "The student's answer does not explain the problem of late binding and the need for a workaround."]
+[Study Buddy A2A] Task complete (2087 chars)
