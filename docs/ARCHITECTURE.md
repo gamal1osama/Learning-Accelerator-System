@@ -322,9 +322,9 @@ For deploying beyond local development:
 - Replace `MemoryServer._store` dict with Redis
 - Add authentication to A2A services (`AgentAuthentication`)
 - Run MCP servers as separate processes via stdio transport
-- Switch to the LiteLLM Docker deployment for rate limiting and model
-  fallbacks (the gateway itself is a dependency-free swap: the
-  `litellm_config.yaml` in this repo already shows the fallback chain)
+- Use LiteLLM's built-in rate limiting and budget checks (enable them in
+  `litellm_config.yaml`; the gateway already runs from
+  `docker-compose.gateway.yml`)
 - Add structured logging to replace print statements
 
 ## The LLM gateway layer
@@ -348,4 +348,7 @@ Why a gateway around Ollama instead of calling Ollama directly:
 
 CrewAI, in the Study Buddy service, uses its own LLM client class, which
 is configured to the same gateway with the `openai/<alias>` model prefix —
-same protocol, same routing.
+same protocol, same routing. CrewAI can only resolve such aliases with the
+litellm SDK installed; that light package stays in the venv (the gateway
+server itself never runs from the venv — it is the
+`docker-compose.gateway.yml` container).

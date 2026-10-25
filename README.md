@@ -83,7 +83,7 @@ Workflow per topic:
 ## Requirements
 
 * Python 3.11 or newer
-* Docker (optional, for the Langfuse observability stack)
+* Docker. Required for the LiteLLM gateway; optional for the Langfuse observability stack
 * An Ollama endpoint. Local (`http://localhost:11434`) or remote over HTTPS
 
 ## Quickstart
@@ -96,7 +96,8 @@ Then edit `.env` and point the stack at your Ollama endpoint:
 
 ```env
 LITELLM_BASE_URL=http://localhost:4000
-LITELLM_API_KEY=sk-local-gateway
+LITELLM_API_KEY=sk-notes-helper-gateway-key
+LITELLM_MASTER_KEY=sk-notes-helper-gateway-key
 LITELLM_MODEL=notes-helper
 OLLAMA_BASE_URL=http://localhost:11434
 ```
@@ -108,7 +109,7 @@ Terminal:
 ```bash
 ollama pull qwen2.5:7b
 
-make gateway      # LiteLLM gateway on :4000, routes to Ollama
+make gateway      # LiteLLM gateway (docker) on :4000, routes to Ollama
 make langfuse     # optional but recommended
 make services     # start both A2A services in the background
 make run
@@ -413,7 +414,8 @@ All configuration lives in `.env` (copy from `.env.example`):
 | Variable | Purpose |
 |---|---|
 | `LITELLM_BASE_URL` | Gateway endpoint the agents call (default `http://localhost:4000`) |
-| `LITELLM_API_KEY` | Key sent to the gateway (`sk-local-gateway` unless you enable a master key) |
+| `LITELLM_API_KEY` | Key the app sends as Bearer. Must match the gateway master key |
+| `LITELLM_MASTER_KEY` | Gateway auth key (read by the docker container via `env_file`) |
 | `LITELLM_MODEL` | Model alias registered in `litellm_config.yaml` (default `notes-helper`) |
 | `OLLAMA_BASE_URL` | Where the **gateway** reaches Ollama (used by `litellm_config.yaml`) |
 | `CHECKPOINT_DB` | SQLite checkpoint database path |
@@ -433,10 +435,10 @@ files. Add your own notes there and the Explainer will teach from them.
 
 | Target | Description |
 |---|---|
-| `make setup` | Create venv, install dependencies (incl. the gateway), copy `.env` |
-| `make gateway` | Start the LiteLLM inference gateway on :4000 |
+| `make setup` | Create venv, install dependencies, copy `.env` |
+| `make gateway` | Start the LiteLLM gateway container on :4000 (Docker) |
 | `make gateway-stop` | Stop the LiteLLM gateway |
-| `make gateway-logs` | Tail the gateway log |
+| `make gateway-logs` | Tail the gateway container logs |
 | `make run` | Run the main application (terminal) |
 | `make streamlit` | Run the web interface at http://localhost:8501 |
 | `make run-goal GOAL='Learn async Python'` | Run with a custom goal |
@@ -481,6 +483,7 @@ src/
   mcp_servers/         Filesystem and memory MCP tool servers
   observability/       Langfuse configuration
 litellm_config.yaml    Gateway model routing and fallback configuration
+docker-compose.gateway.yml  LiteLLM gateway container definition
 study_materials/       Your notes (markdown). Samples included
 tests/                 Unit and evaluation test suites
 main.py                Entry point and interrupt resume loop (terminal)
@@ -508,10 +511,11 @@ Start it with `make gateway`. Every agent talks to the LiteLLM gateway on
 `notes-helper`) and maps it to an Ollama model. Make sure the Ollama model
 in the config matches something you pulled.
 
-**Requests fall back or fail against ngrok / remote Ollama**
+**Requests fail against ngrok / remote Ollama**
 The gateway logs which upstream endpoint it used: check
-`logs/litellm_gateway.log`. Make sure `OLLAMA_BASE_URL` in `.env` points at
-a live endpoint and run `make gateway` again (it reloads `.env`).
+`make gateway-logs` (docker logs). Make sure `OLLAMA_BASE_URL` in `.env`
+points at a live endpoint, then `make gateway-stop && make gateway` — the
+container reads `.env` fresh through its `env_file` on every start.
 
 **A2A calls show "service not available"**
 That is the graceful fallback working. Start the services with

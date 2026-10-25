@@ -1,6 +1,8 @@
 # Model Selection Guide
 
-All agents in this system call the LiteLLM gateway, which routes to Ollama
+All agents in this system call the LiteLLM gateway, which runs as a docker
+container (`docker-compose.gateway.yml`, started by `make gateway`) and
+routes to Ollama
 (the configured provider). This guide helps you choose the right model for
 your hardware.
 
@@ -83,7 +85,7 @@ restart the gateway:
 
 ```bash
 ollama pull qwen2.5-coder:32b
-make gateway    # restart picks up the new config (gateway-stop is automatic)
+make gateway-stop && make gateway    # restart the docker container to pick up the new config
 ```
 
 No agent code changes needed. If you enable a cloud fallback chain
