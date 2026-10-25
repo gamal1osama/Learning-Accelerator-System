@@ -1,0 +1,33 @@
+# docker-compose.gateway.yml
+# LiteLLM gateway (OpenAI-compatible) for the Learning Accelerator.
+#
+# Every agent talks to this gateway; it reads litellm_config.yaml and
+# routes requests to the configured provider (Ollama by default).
+# OLLAMA_BASE_URL comes from .env via env_file, so the gateway always
+# sees the value in the file, not a stale shell export.
+#
+# Start: make gateway        (docker compose -f docker-compose.gateway.yml up -d)
+# Stop:  make gateway-stop   (docker compose -f docker-compose.gateway.yml down)
+# Logs:  make gateway-logs
+
+services:
+  gateway:
+    # Official LiteLLM proxy image (built with the proxy extra, so the
+    # Python venv needs no litellm packages). Tracks the stable chart;
+    # pin to a digest if you need exact reproducibility.
+    image: ghcr.io/berriai/litellm:main-stable
+    container_name: notes-helper-gateway
+    command: ["--config", "/app/litellm_config.yaml", "--host", "0.0.0.0", "--port", "4000"]
+    ports:
+      - "127.0.0.1:4000:4000"
+    volumes:
+      - ./litellm_config.yaml:/app/litellm_config.yaml:ro
+    env_file: .env
+    restart: unless-stopped
+    healthcheck:
+      # /health/liveliness is unauthenticated on the LiteLLM proxy.
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
