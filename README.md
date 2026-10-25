@@ -96,8 +96,7 @@ Then edit `.env` and point the stack at your Ollama endpoint:
 
 ```env
 LITELLM_BASE_URL=http://localhost:4000
-LITELLM_API_KEY=sk-notes-helper-gateway-key
-LITELLM_MASTER_KEY=sk-notes-helper-gateway-key
+LITELLM_API_KEY=sk-local-gateway
 LITELLM_MODEL=notes-helper
 OLLAMA_BASE_URL=http://localhost:11434
 ```
@@ -414,8 +413,7 @@ All configuration lives in `.env` (copy from `.env.example`):
 | Variable | Purpose |
 |---|---|
 | `LITELLM_BASE_URL` | Gateway endpoint the agents call (default `http://localhost:4000`) |
-| `LITELLM_API_KEY` | Key the app sends as Bearer. Must match the gateway master key |
-| `LITELLM_MASTER_KEY` | Gateway auth key (read by the docker container via `env_file`) |
+| `LITELLM_API_KEY` | Key the app sends as Bearer. Unenforced in local mode (127.0.0.1-only gateway) |
 | `LITELLM_MODEL` | Model alias registered in `litellm_config.yaml` (default `notes-helper`) |
 | `OLLAMA_BASE_URL` | Where the **gateway** reaches Ollama (used by `litellm_config.yaml`) |
 | `CHECKPOINT_DB` | SQLite checkpoint database path |

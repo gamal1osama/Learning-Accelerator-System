@@ -23,6 +23,11 @@ services:
     volumes:
       - ./litellm_config.yaml:/app/litellm_config.yaml:ro
     env_file: .env
+    environment:
+      # The gateway listens on 127.0.0.1 only, so it runs in local mode:
+      # no master key (which would require LiteLLM's database-backed
+      # virtual-key mode) and no authentication.
+      LITELLM_DANGEROUSLY_PERMIT_WEAK_OR_UNSET_MASTER_KEY: "true"
     restart: unless-stopped
     healthcheck:
       # /health/liveliness is unauthenticated on the LiteLLM proxy.
