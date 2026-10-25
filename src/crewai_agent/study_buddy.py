@@ -47,8 +47,9 @@ from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
 
-MODEL_NAME = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+GATEWAY_BASE_URL = os.getenv("LITELLM_BASE_URL", "http://localhost:4000").rstrip("/")
+GATEWAY_API_KEY = os.getenv("LITELLM_API_KEY", "sk-local-gateway")
+GATEWAY_MODEL = os.getenv("LITELLM_MODEL", "notes-helper")
 
 
 # CrewAI Tools
@@ -129,10 +130,13 @@ def build_study_buddy_crew(
     """
     topic_analyser = TopicAnalyserTool()
 
-    # Configure CrewAI to use Ollama
+    # Configure CrewAI to use the LiteLLM gateway. The gateway speaks
+    # OpenAI's API on its frontend and routes to the configured
+    # provider (Ollama today) on the backend.
     llm = LLM(
-        model=f"ollama/{MODEL_NAME}",
-        base_url=OLLAMA_BASE_URL,
+        model=f"openai/{GATEWAY_MODEL}",
+        base_url=GATEWAY_BASE_URL,
+        api_key=GATEWAY_API_KEY,
     )
 
     study_buddy_agent = Agent(
