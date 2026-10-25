@@ -28,7 +28,6 @@ setup:
 	python3 -m venv $(VENV)
 	$(PIP) install --upgrade pip
 	$(PIP) install -r requirements.txt
-	$(PIP) install -q "litellm[proxy]==1.82.4"
 	@cp -n .env.example .env 2>/dev/null || true
 	@mkdir -p data
 	@echo ""
@@ -45,7 +44,7 @@ setup:
 
 gateway:
 	@echo "Starting LiteLLM gateway..."
-	@$(PYTHON) -c "import litellm" 2>/dev/null || $(PIP) install -q "litellm[proxy]==1.82.4"
+	@$(PYTHON) -c "import apscheduler" 2>/dev/null || $(PIP) install -q -r requirements.txt
 	@mkdir -p logs
 	@echo "Stopping existing gateway (if any)..."
 	@pkill -f "[l]itellm.*litellm_config.yaml" 2>/dev/null || true
