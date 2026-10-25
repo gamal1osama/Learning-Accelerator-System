@@ -1,16 +1,13 @@
 # src/agents/explainer.py (setup section)
 
-import json, os
+import json
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
-from langchain_ollama import ChatOllama
 
 from graph.state import get_current_topic
+from llm import build_llm
 from mcp_servers.filesystem_server import list_study_files, read_study_file, search_notes
 from mcp_servers.memory_server import memory_get, memory_set
-
-MODEL_NAME = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 
 @tool
@@ -135,11 +132,7 @@ def explainer_node(state: dict) -> dict:
     session_id = state.get("session_id", "unknown")
     print(f"\n[Explainer] Topic: '{topic.title}'")
 
-    llm = ChatOllama(
-        model=MODEL_NAME,
-        base_url=OLLAMA_BASE_URL,
-        temperature=0.3,
-    ).bind_tools(EXPLAINER_TOOLS)
+    llm = build_llm(temperature=0.3).bind_tools(EXPLAINER_TOOLS)
 
     messages = [
         SystemMessage(content=EXPLAINER_SYSTEM_PROMPT),
