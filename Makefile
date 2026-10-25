@@ -50,8 +50,11 @@ gateway:
 	@echo "Stopping existing gateway (if any)..."
 	@pkill -f "[l]itellm.*litellm_config.yaml" 2>/dev/null || true
 	@sleep 1
-	$(PYTHON) -m litellm --config litellm_config.yaml --host 127.0.0.1 --port 4000 --detailed_debug > logs/litellm_gateway.log 2>&1 &
+	# Load .env first (set -a exports loaded vars) so that .env overrides
+	# any stale shell-exported variables the gateway would otherwise see.
+	@set -a && . ./.env && set +a && $(VENV)/bin/litellm --config litellm_config.yaml --host 127.0.0.1 --port 4000 --detailed_debug > logs/litellm_gateway.log 2>&1 &
 	@sleep 3
+	@for i in 1 2 3 4 5; do curl -sf http://127.0.0.1:4000/v1/models > /dev/null && break || sleep 2; done
 	@curl -sf http://127.0.0.1:4000/v1/models > /dev/null \
 		&& echo "Gateway up: http://localhost:4000 (logs: logs/litellm_gateway.log)" \
 		|| echo "Gateway may still be booting - check logs/litellm_gateway.log"
