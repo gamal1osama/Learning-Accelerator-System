@@ -3,6 +3,7 @@
 #
 # Usage:
 #   make setup      : create venv and install dependencies
+#   make gateway    : start the LiteLLM inference gateway
 #   make run        : run the main application
 #   make services   : start both A2A services in background
 #   make stop       : stop background services
@@ -11,12 +12,13 @@
 #   make eval       : run LLM-as-judge evaluation tests
 #   make clean      : remove generated files
 
-.PHONY: setup run streamlit run-goal resume services stop langfuse langfuse-stop \
-        langfuse-logs test eval test-all clean clean-all help
+.PHONY: setup gateway gateway-stop gateway-logs run streamlit run-goal resume \
+        services stop langfuse langfuse-stop langfuse-logs test eval test-all \
+        clean clean-all help
 
 VENV = .venv
 PYTHON = $(VENV)/bin/python
-PIP = $(VENV)/bin/pip
+PIP = $(PYTHON) -m pip
 PYTEST = $(VENV)/bin/pytest
 
 # Setup
@@ -26,19 +28,47 @@ setup:
 	python3 -m venv $(VENV)
 	$(PIP) install --upgrade pip
 	$(PIP) install -r requirements.txt
+	$(PIP) install -q "litellm[proxy]==1.82.4"
 	@cp -n .env.example .env 2>/dev/null || true
 	@mkdir -p data
 	@echo ""
 	@echo "Setup complete. Next steps:"
 	@echo "  1. source $(VENV)/bin/activate"
-	@echo "  2. Edit .env, set OLLAMA_MODEL to match your VRAM"
-	@echo "  3. ollama pull qwen2.5:7b  (or qwen2.5-coder:32b for 24GB)"
-	@echo "  4. make run"
+	@echo "  2. Edit .env, point OLLAMA_BASE_URL at your Ollama endpoint"
+	@echo "  3. Align the model in litellm_config.yaml with your pulled model"
+	@echo "     (default: ollama pull qwen2.5:7b)"
+	@echo "  4. make gateway && make run"
+
+# Inference gateway
+# Every agent talks to this gateway; it routes to Ollama (see
+# litellm_config.yaml). All LLM-backed commands need it running.
+
+gateway:
+	@echo "Starting LiteLLM gateway..."
+	@$(PYTHON) -c "import litellm" 2>/dev/null || $(PIP) install -q "litellm[proxy]==1.82.4"
+	@mkdir -p logs
+	@echo "Stopping existing gateway (if any)..."
+	@pkill -f "[l]itellm.*litellm_config.yaml" 2>/dev/null || true
+	@sleep 1
+	$(PYTHON) -m litellm --config litellm_config.yaml --host 127.0.0.1 --port 4000 --detailed_debug > logs/litellm_gateway.log 2>&1 &
+	@sleep 3
+	@curl -sf http://127.0.0.1:4000/v1/models > /dev/null \
+		&& echo "Gateway up: http://localhost:4000 (logs: logs/litellm_gateway.log)" \
+		|| echo "Gateway may still be booting - check logs/litellm_gateway.log"
+
+gateway-stop:
+	@pkill -f "[l]itellm.*litellm_config.yaml" 2>/dev/null || true
+	@echo "Gateway stopped"
+
+gateway-logs:
+	@tail -f logs/litellm_gateway.log
 
 # Running
 
 run:
 	@echo "Starting Learning Accelerator..."
+	@curl -sf http://127.0.0.1:4000/v1/models > /dev/null 2>&1 \
+		|| echo "WARNING: LiteLLM gateway not reachable on :4000. Start it with: make gateway"
 	$(PYTHON) main.py
 
 streamlit:
@@ -103,7 +133,7 @@ test:
 	$(PYTEST) tests/ -m "not eval" -v
 
 eval:
-	@echo "Running evaluation tests (requires Ollama, ~90 seconds)..."
+	@echo "Running evaluation tests (requires the LiteLLM gateway, ~90 seconds)..."
 	$(PYTEST) tests/test_eval.py -v -s -m eval
 
 test-all:
@@ -129,17 +159,20 @@ help:
 	@echo "Learning Accelerator, available commands:"
 	@echo ""
 	@echo "  make setup        Set up virtual environment and install deps"
+	@echo "  make gateway      Start the LiteLLM inference gateway (:4000)"
+	@echo "  make gateway-stop Stop the gateway"
+	@echo "  make gateway-logs Tail the gateway log"
 	@echo "  make run          Run the main application"
 	@echo "  make run-goal GOAL='Learn async Python'  Run with custom goal"
 	@echo "  make resume SESSION=abc12345  Resume a stopped session"
 	@echo ""
 	@echo "  make services     Start both A2A services in background"
-	@echo "  make stop         Stop background A2A services"
+	@echo "  make stop         Stop background services"
 	@echo ""
 	@echo "  make langfuse     Start Langfuse observability (Docker required)"
 	@echo "  make langfuse-stop  Stop Langfuse"
 	@echo ""
 	@echo "  make test         Run fast unit tests (~3 seconds)"
-	@echo "  make eval         Run eval tests (~90 seconds, Ollama required)"
+	@echo "  make eval         Run eval tests (~90 seconds, gateway required)"
 	@echo ""
 	@echo "  make clean        Remove checkpoints and cache files"
