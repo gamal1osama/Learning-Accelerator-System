@@ -41,29 +41,20 @@ setup:
 # Inference gateway
 # Every agent talks to this gateway; it routes to Ollama (see
 # litellm_config.yaml). All LLM-backed commands need it running.
+# The gateway is a docker container (see docker-compose.gateway.yml),
+# so no litellm package needs to be installed in the venv.
 
 gateway:
-	@echo "Starting LiteLLM gateway..."
-	@$(PYTHON) -c "import apscheduler" 2>/dev/null || $(PIP) install -q -r requirements.txt
-	@mkdir -p logs
-	@echo "Stopping existing gateway (if any)..."
-	@pkill -f "[l]itellm.*litellm_config.yaml" 2>/dev/null || true
-	@sleep 1
-	# Load .env first (set -a exports loaded vars) so that .env overrides
-	# any stale shell-exported variables the gateway would otherwise see.
-	@set -a && . ./.env && set +a && $(VENV)/bin/litellm --config litellm_config.yaml --host 127.0.0.1 --port 4000 --detailed_debug > logs/litellm_gateway.log 2>&1 &
-	@sleep 3
-	@for i in 1 2 3 4 5; do curl -sf http://127.0.0.1:4000/v1/models > /dev/null && break || sleep 2; done
-	@curl -sf http://127.0.0.1:4000/v1/models > /dev/null \
-		&& echo "Gateway up: http://localhost:4000 (logs: logs/litellm_gateway.log)" \
-		|| echo "Gateway may still be booting - check logs/litellm_gateway.log"
+	@echo "Starting LiteLLM gateway (docker)..."
+	docker compose -f docker-compose.gateway.yml up -d --wait
+	@echo "Gateway up: http://localhost:4000 (logs: make gateway-logs)"
 
 gateway-stop:
-	@pkill -f "[l]itellm.*litellm_config.yaml" 2>/dev/null || true
+	docker compose -f docker-compose.gateway.yml down
 	@echo "Gateway stopped"
 
 gateway-logs:
-	@tail -f logs/litellm_gateway.log
+	docker compose -f docker-compose.gateway.yml logs -f
 
 # Running
 
@@ -161,7 +152,7 @@ help:
 	@echo "Learning Accelerator, available commands:"
 	@echo ""
 	@echo "  make setup        Set up virtual environment and install deps"
-	@echo "  make gateway      Start the LiteLLM inference gateway (:4000)"
+	@echo "  make gateway      Start the LiteLLM inference gateway (:4000, Docker)"
 	@echo "  make gateway-stop Stop the gateway"
 	@echo "  make gateway-logs Tail the gateway log"
 	@echo "  make run          Run the main application"
