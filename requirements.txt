@@ -4,7 +4,7 @@ langgraph-checkpoint==3.0.1
 langgraph-checkpoint-sqlite==3.0.3
 langchain==1.2.11
 langchain-core==1.6.12
-langchain-ollama==1.0.0
+langchain-openai==1.0.3
 
 mcp==1.26.0
 a2a-sdk==0.3.25
