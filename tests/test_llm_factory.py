@@ -56,18 +56,18 @@ class TestBuildLLM:
         assert kwargs["model"] == "notes-helper"
         assert kwargs["base_url"] == "http://localhost:4000"
         assert kwargs["temperature"] == 0.3
-        assert "response_format" not in kwargs
+        assert "model_kwargs" not in kwargs
 
     @patch("llm.client.ChatOpenAI")
     def test_json_mode_sets_response_format(self, mock_chat):
         build_llm(temperature=0.1, json_mode=True)
         kwargs = mock_chat.call_args.kwargs
-        assert kwargs["response_format"] == {"type": "json_object"}
+        assert kwargs["model_kwargs"]["response_format"] == {"type": "json_object"}
 
     @patch("llm.client.ChatOpenAI")
     def test_no_json_mode_by_default(self, mock_chat):
         build_llm(temperature=0.4)
-        assert "response_format" not in mock_chat.call_args.kwargs
+        assert "model_kwargs" not in mock_chat.call_args.kwargs
 
     @patch("llm.client.ChatOpenAI")
     def test_env_read_at_call_time(self, mock_chat, monkeypatch):

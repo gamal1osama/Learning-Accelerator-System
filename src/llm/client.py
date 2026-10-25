@@ -56,5 +56,8 @@ def build_llm(temperature: float = 0.3, json_mode: bool = False) -> ChatOpenAI:
         "temperature": temperature,
     }
     if json_mode:
-        kwargs["response_format"] = {"type": "json_object"}
+        # Passed via model_kwargs: in this langchain-openai release
+        # response_format is not a first-class class field, setting it
+        # directly triggers a UserWarning on every construction.
+        kwargs["model_kwargs"] = {"response_format": {"type": "json_object"}}
     return ChatOpenAI(**kwargs)
