@@ -1,7 +1,8 @@
 # Model Selection Guide
 
-All agents in this system use Ollama for local inference.
-This guide helps you choose the right model for your hardware.
+All agents in this system call the LiteLLM gateway, which routes to Ollama
+(the configured provider). This guide helps you choose the right model for
+your hardware.
 
 ---
 
@@ -36,17 +37,17 @@ Apple Silicon unified memory is shared between CPU and GPU.
 
 ## Agent-specific settings
 
-These settings are used throughout the codebase:
+These settings are used throughout the codebase (via `src/llm/client.py`):
 
 ```python
 # Structured output (Curriculum Planner, Quiz Generator grader)
-ChatOllama(temperature=0.1, format="json")
+build_llm(temperature=0.1, json_mode=True)
 
 # Tool-calling (Explainer)
-ChatOllama(temperature=0.3)
+build_llm(temperature=0.3)
 
 # Creative/coaching (Progress Coach, Quiz Generator questions)
-ChatOllama(temperature=0.4, format="json")
+build_llm(temperature=0.4, json_mode=True)
 ```
 
 Low temperature = more consistent JSON. Higher temperature = more
@@ -69,17 +70,40 @@ normalization applies regardless, so both interfaces stay consistent.
 
 ## Switching models
 
-Change `OLLAMA_MODEL` in `.env`. No code changes needed.
+Edit `litellm_config.yaml` — the model name is a gateway routing concern,
+not an app concern. Change the `model:` line to a model you have pulled and
+restart the gateway:
 
-```bash
-# .env
-OLLAMA_MODEL=qwen2.5-coder:32b
+```yaml
+  - model_name: notes-helper
+    litellm_params:
+      model: ollama_chat/qwen2.5-coder:32b
+      api_base: os.environ/OLLAMA_BASE_URL
 ```
 
-Then pull the model if you haven't:
 ```bash
 ollama pull qwen2.5-coder:32b
+make gateway    # restart picks up the new config (gateway-stop is automatic)
 ```
+
+No agent code changes needed. If you enable a cloud fallback chain
+(GPT-4 primary, Claude then Ollama as fallbacks), do the same on that
+entry and set `LITELLM_MODEL` to the cloud alias in `.env`.
+
+## Fallback routing
+
+The commented section at the bottom of `litellm_config.yaml` shows the
+pattern: one alias per leg of the chain plus a `fallbacks` mapping. Rules
+of thumb:
+
+- Every model in a tool-calling chain must support tool calling (the
+  Explainer uses `.bind_tools()`); a chain member without tool support
+  breaks the Explainer whenever traffic lands on it.
+- Keep the local Ollama leg as the last fallback: it is free and always
+  reachable.
+- Fallback latency stacks: each fallback attempt adds a full retry round
+  trip. Two fallback legs is the practical maximum for a UI driven by
+  per-call user waits.
 
 ---
 
