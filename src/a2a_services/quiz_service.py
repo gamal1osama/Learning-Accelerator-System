@@ -48,6 +48,14 @@ from a2a.types import (
     Message,
     TextPart,
 )
+from starlette.middleware import Middleware
+
+from a2a_services.auth import (
+    BEARER_SECURITY,
+    BEARER_SCHEME_NAME,
+    BEARER_SECURITY_SCHEME,
+    BearerAuthMiddleware,
+)
 
 from agents.quiz_generator import generate_questions, grade_answer
 
@@ -87,6 +95,11 @@ QUIZ_AGENT_CARD = AgentCard(
     default_output_modes=["text"],
     capabilities=AgentCapabilities(streaming=False),
     skills=[QUIZ_SKILL],
+    # Declares the security requirement even when auth is disabled locally:
+    # the middleware only enforces it once A2A_BEARER_TOKEN is set, and the
+    # card endpoint itself stays public for discovery.
+    security_schemes={BEARER_SCHEME_NAME: BEARER_SECURITY_SCHEME},
+    security=BEARER_SECURITY,
 )
 
 
@@ -236,7 +249,11 @@ def create_quiz_server():
         agent_card=QUIZ_AGENT_CARD,
         http_handler=request_handler,
     )
-    return app.build()
+    # BearerAuthMiddleware is a pass-through while A2A_BEARER_TOKEN is unset,
+    # so this is identical to the old unauthenticated app in dev mode.
+    return app.build(
+        middleware=[Middleware(BearerAuthMiddleware)],
+    )
 
 
 if __name__ == "__main__":

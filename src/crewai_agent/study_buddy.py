@@ -23,12 +23,17 @@ Agent Card:
 import asyncio
 import json
 import os
+import sys
 import uuid
+from pathlib import Path
 
 import uvicorn
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
+
+# Ensure src/ is on path when running as script (same as quiz_service.py)
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.apps import A2AStarletteApplication
@@ -45,6 +50,14 @@ from a2a.types import (
 from crewai import Agent, Crew, LLM, Process, Task
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
+from starlette.middleware import Middleware
+
+from a2a_services.auth import (
+    BEARER_SECURITY,
+    BEARER_SCHEME_NAME,
+    BEARER_SECURITY_SCHEME,
+    BearerAuthMiddleware,
+)
 
 
 GATEWAY_BASE_URL = os.getenv("LITELLM_BASE_URL", "http://localhost:4000").rstrip("/")
@@ -222,6 +235,9 @@ STUDY_BUDDY_CARD = AgentCard(
     default_output_modes=["text"],
     capabilities=AgentCapabilities(streaming=False),
     skills=[STUDY_BUDDY_SKILL],
+    # Same shared bearer scheme as the Quiz service (see a2a_services.auth).
+    security_schemes={BEARER_SCHEME_NAME: BEARER_SECURITY_SCHEME},
+    security=BEARER_SECURITY,
 )
 
 
@@ -329,7 +345,11 @@ def create_study_buddy_server():
         agent_card=STUDY_BUDDY_CARD,
         http_handler=request_handler,
     )
-    return app.build()
+    # BearerAuthMiddleware is a pass-through while A2A_BEARER_TOKEN is unset,
+    # so this is identical to the old unauthenticated app in dev mode.
+    return app.build(
+        middleware=[Middleware(BearerAuthMiddleware)],
+    )
 
 
 if __name__ == "__main__":
