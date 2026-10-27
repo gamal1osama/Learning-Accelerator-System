@@ -320,12 +320,43 @@ See `docs/MODEL_SELECTION.md` for model recommendations by hardware.
 For deploying beyond local development:
 - Replace `InMemoryTaskStore` with a persistent store (PostgreSQL)
 - Replace `MemoryServer._store` dict with Redis
-- Add authentication to A2A services (`AgentAuthentication`)
+- ~~Add authentication to A2A services~~ **Done** — auth is implemented
+  (see the next section)
 - Run MCP servers as separate processes via stdio transport
 - Use LiteLLM's built-in rate limiting and budget checks (enable them in
   `litellm_config.yaml`; the gateway already runs from
   `docker-compose.gateway.yml`)
 - Add structured logging to replace print statements
+
+## A2A authentication
+
+Both A2A services speak the same security dialect, defined once in
+`src/a2a_services/auth.py`:
+
+1. **Declaration** — each Agent Card carries a standard OpenAPI-style
+   `securitySchemes` entry (HTTP `bearer` scheme) plus `security: [bearer]`.
+   The card stays publicly readable: A2A clients fetch it first to discover
+   which credential to present.
+2. **Enforcement** — a Starlette middleware (`BearerAuthMiddleware`) is
+   attached to both services in their `create_*_server()` factories. While
+   `A2A_BEARER_TOKEN` is unset the middleware is a pass-through, so local
+   development behaves exactly as before. With a token set, `POST /`
+   (JSON-RPC) requires `Authorization: Bearer <token>`; failures get a 401
+   with a `WWW-Authenticate: Bearer` header. Tokens compare under
+   `secrets.compare_digest` (not timing-attackable) and the well-known card
+   path (plus any extra paths listed in `A2A_PUBLIC_PATHS`) stays public.
+3. **Client side** — `a2a_client.py` reads the same `A2A_BEARER_TOKEN` and
+   attaches the header to discovery, task submissions, and health checks.
+   401/403 responses surface as the usual error dict instead of raising.
+
+Because the credential travels in the plain HTTP `Authorization` header
+(RFC 7235), any A2A-compatible caller — including third-party ones — works
+from the Agent Card declaration without our client code.
+
+For mTLS instead of (or in addition to) bearer tokens, the services support
+it at the uvicorn layer (`uvicorn.run(..., ssl_certfile=..., ssl_keyfile=...)`
+plus client-policy verification). That is deployment configuration, not
+application code, and a documented follow-up.
 
 ## The LLM gateway layer
 
