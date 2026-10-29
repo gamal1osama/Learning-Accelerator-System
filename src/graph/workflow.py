@@ -1,10 +1,5 @@
 # src/graph/workflow.py
 
-import os
-import sqlite3
-from pathlib import Path
-
-from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph 
 
 from agents.curriculum_planner import curriculum_planner_node
@@ -12,6 +7,7 @@ from agents.explainer import explainer_node
 from agents.human_approval import human_approval_node
 from agents.progress_coach import progress_coach_node
 from agents.quiz_generator import quiz_generator_node
+from graph.checkpointer import make_checkpointer
 from graph.state import AgentState, session_is_complete
 
 
@@ -30,11 +26,8 @@ def route_after_coach(state: dict) -> str:
 def build_graph(
     db_path: str = "data/checkpoints.db",
     interrupt_before: list | None = None,
+    dsn_env_var: str = "CHECKPOINT_DB_URL",
 ):
-    Path("data").mkdir(exist_ok=True)
-    if db_path == "data/checkpoints.db":
-        db_path = os.getenv("CHECKPOINT_DB", db_path)
-
     builder = StateGraph(AgentState)
 
     # Register all five nodes
@@ -62,18 +55,14 @@ def build_graph(
         {"explainer": "explainer", "end": END},
     )
 
-    # IMPORTANT: create the connection directly, not via context manager.
-    # SqliteSaver.from_conn_string() returns a context manager. If you use
-    # `with SqliteSaver.from_conn_string(...) as checkpointer:`, the connection
-    # closes when the `with` block exits. The graph object lives longer than
-    # build_graph(), so the connection must stay open for the process lifetime.
-    conn = sqlite3.connect(db_path, check_same_thread=False)
-    checkpointer = SqliteSaver(conn)
+    # Backend-agnostic checkpointer: PostgresSaver when dsn_env_var is set,
+    # SqliteSaver otherwise. See graph/checkpointer.py.
+    checkpointer = make_checkpointer(
+        dsn_env_var=dsn_env_var,
+        sqlite_default=db_path,
+    )
 
     return builder.compile(
         checkpointer=checkpointer,
         interrupt_before=interrupt_before or [],
     )
-
-
-graph = build_graph()

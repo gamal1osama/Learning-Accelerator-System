@@ -21,9 +21,13 @@ load_dotenv(override=True)
 
 from langgraph.types import Command
 
-from graph.workflow import graph
+from graph.workflow import build_graph
 from graph.state import initial_state, StudyRoadmap, QuizResult
 from observability.langfuse_setup import get_langfuse_config, flush_langfuse
+
+# Build the terminal graph once, after .env is loaded. PostgresSaver is used
+# when CHECKPOINT_DB_URL is set, SQLite otherwise (see graph/checkpointer.py).
+graph = build_graph()
 
 
 def print_session_summary(result: dict) -> None:
