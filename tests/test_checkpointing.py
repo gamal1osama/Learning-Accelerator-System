@@ -19,10 +19,15 @@ Run: python -m pytest tests/test_checkpointing.py -v
 
 import os
 import tempfile
+import uuid
 from pathlib import Path
+from typing import TypedDict
 from unittest.mock import patch, MagicMock
 
 import pytest
+
+from langgraph.graph import END, START, StateGraph
+from langgraph.types import Command, interrupt
 
 from graph.state import (
     StudyRoadmap,
@@ -68,6 +73,164 @@ class TestSqliteSaver:
         # means calling mkdir on it again is safe
         data_dir.mkdir(exist_ok=True)
         assert data_dir.exists()
+
+    def test_falls_back_to_sqlite_without_dsn(self, monkeypatch, tmp_path):
+        """No DSN env var -> legacy SqliteSaver (no Postgres required)."""
+        from graph.checkpointer import make_checkpointer
+        from langgraph.checkpoint.sqlite import SqliteSaver
+
+        monkeypatch.delenv("CHECKPOINT_DB_URL", raising=False)
+        saver = make_checkpointer(
+            dsn_env_var="CHECKPOINT_DB_URL",
+            sqlite_default=str(tmp_path / "fallback.db"),
+        )
+        assert isinstance(saver, SqliteSaver)
+        saver.conn.close()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Postgres checkpointer tests (require a live Postgres)
+# ─────────────────────────────────────────────────────────────────────────────
+
+PG_DSN = os.getenv("TEST_CHECKPOINT_DB_URL")
+PG_DSN_UI = os.getenv("TEST_CHECKPOINT_DB_URL_UI")
+requires_postgres = pytest.mark.skipif(
+    not PG_DSN,
+    reason="TEST_CHECKPOINT_DB_URL not set; start Postgres with: make postgres",
+)
+
+
+class _CounterState(TypedDict):
+    count: int
+    decision: str
+
+
+def _bump(state: _CounterState) -> dict:
+    return {"count": state["count"] + 1}
+
+
+def _ask(state: _CounterState) -> dict:
+    answer = interrupt({"prompt": "continue?"})
+    return {"decision": answer}
+
+
+def _build_counter_graph(checkpointer):
+    """
+    Tiny LLM-free graph: START -> bump -> ask (interrupt) -> END.
+
+    Exercises the exact primitives the real app relies on: checkpoint
+    writes after every node and a human-in-the-loop interrupt.
+    """
+    builder = StateGraph(_CounterState)
+    builder.add_node("bump", _bump)
+    builder.add_node("ask", _ask)
+    builder.add_edge(START, "bump")
+    builder.add_edge("bump", "ask")
+    builder.add_edge("ask", END)
+    return builder.compile(checkpointer=checkpointer)
+
+
+def _make_pg_saver(env_var: str = "TEST_CHECKPOINT_DB_URL"):
+    from graph.checkpointer import make_checkpointer
+
+    return make_checkpointer(dsn_env_var=env_var, sqlite_default="data/unused.db")
+
+
+def _close(saver) -> None:
+    """Release the pool/connection so tests don't leak connections."""
+    conn = getattr(saver, "conn", None)
+    if conn is not None and hasattr(conn, "close"):
+        conn.close()
+
+
+@requires_postgres
+class TestPostgresCheckpointer:
+    """Persistence, resume across instances, and database isolation."""
+
+    def test_setup_is_idempotent(self):
+        """Two successive initialisations against the same DB must not fail."""
+        first = _make_pg_saver()
+        second = _make_pg_saver()
+        try:
+            from langgraph.checkpoint.postgres import PostgresSaver
+            assert isinstance(first, PostgresSaver)
+            assert isinstance(second, PostgresSaver)
+        finally:
+            _close(first)
+            _close(second)
+
+    def test_checkpoint_roundtrip_across_instances(self):
+        """State written by one instance is readable by a fresh instance."""
+        thread_id = f"pg-roundtrip-{uuid.uuid4()}"
+        config = {"configurable": {"thread_id": thread_id}}
+
+        writer = _make_pg_saver()
+        try:
+            graph_a = _build_counter_graph(writer)
+            graph_a.invoke({"count": 0, "decision": ""}, config=config)
+            # Paused at the interrupt: the bump node's checkpoint is saved.
+            state_a = graph_a.get_state(config)
+            assert state_a.values["count"] == 1
+        finally:
+            _close(writer)
+
+        # Brand-new instance: new pool, same database, same thread.
+        reader = _make_pg_saver()
+        try:
+            graph_b = _build_counter_graph(reader)
+            state_b = graph_b.get_state(config)
+            assert state_b.values["count"] == 1
+        finally:
+            _close(reader)
+
+    def test_interrupt_resumed_by_second_instance(self):
+        """
+        The core multi-instance property: instance A pauses on an
+        interrupt, instance B picks the thread up and finishes it.
+        """
+        thread_id = f"pg-resume-{uuid.uuid4()}"
+        config = {"configurable": {"thread_id": thread_id}}
+
+        instance_a = _make_pg_saver()
+        try:
+            graph_a = _build_counter_graph(instance_a)
+            result = graph_a.invoke({"count": 0, "decision": ""}, config=config)
+            assert "__interrupt__" in result
+        finally:
+            _close(instance_a)
+
+        instance_b = _make_pg_saver()
+        try:
+            graph_b = _build_counter_graph(instance_b)
+            result = graph_b.invoke(Command(resume="yes"), config=config)
+            assert result["decision"] == "yes"
+            assert result["count"] == 1
+            assert "__interrupt__" not in result
+        finally:
+            _close(instance_b)
+
+    @pytest.mark.skipif(
+        not PG_DSN_UI, reason="TEST_CHECKPOINT_DB_URL_UI not set"
+    )
+    def test_terminal_and_ui_databases_are_isolated(self):
+        """A thread written to the terminal DB must not appear in the UI DB."""
+        thread_id = f"pg-isolation-{uuid.uuid4()}"
+        config = {"configurable": {"thread_id": thread_id}}
+
+        terminal = _make_pg_saver("TEST_CHECKPOINT_DB_URL")
+        try:
+            graph_t = _build_counter_graph(terminal)
+            graph_t.invoke({"count": 0, "decision": ""}, config=config)
+            assert graph_t.get_state(config).values["count"] == 1
+        finally:
+            _close(terminal)
+
+        ui = _make_pg_saver("TEST_CHECKPOINT_DB_URL_UI")
+        try:
+            graph_u = _build_counter_graph(ui)
+            assert graph_u.get_state(config).values == {}
+        finally:
+            _close(ui)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
