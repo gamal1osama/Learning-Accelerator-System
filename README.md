@@ -406,6 +406,14 @@ USE_A2A_QUIZ=true      # set false to always use the local quiz generator
 USE_STUDY_BUDDY=true   # set false to skip the CrewAI supplementary help
 ```
 
+Both Agent Cards declare a `bearer` security scheme (see their
+`securitySchemes` fields). When you set `A2A_BEARER_TOKEN` in `.env`, task
+submissions require `Authorization: Bearer <token>` — any caller without it
+gets a 401 — and the bundled `a2a_client.py` sends that header
+automatically. Leave the variable empty to run everything unauthenticated,
+exactly as before (see the A2A authentication section in
+`docs/ARCHITECTURE.md`).
+
 ## Configuration
 
 All configuration lives in `.env` (copy from `.env.example`):
@@ -420,6 +428,7 @@ All configuration lives in `.env` (copy from `.env.example`):
 | `NOTES_PATH` | Directory with your markdown notes |
 | `LANGFUSE_*` | Langfuse keys. Leave empty to disable tracing |
 | `QUIZ_SERVICE_URL` / `STUDY_BUDDY_URL` | A2A endpoints |
+| `A2A_BEARER_TOKEN` | Shared bearer token for the A2A services. Empty = auth off (dev mode) |
 | `USE_A2A_QUIZ` / `USE_STUDY_BUDDY` | A2A feature toggles |
 
 The model name itself lives in `litellm_config.yaml` and must match a model

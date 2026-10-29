@@ -5,16 +5,32 @@ import json
 import uuid
 import os
 
+from a2a_services.auth import auth_header, unauthorized_digest
+
 QUIZ_SERVICE_URL  = os.getenv("QUIZ_SERVICE_URL",  "http://localhost:9001")
 STUDY_BUDDY_URL   = os.getenv("STUDY_BUDDY_URL",   "http://localhost:9002")
 DEFAULT_TIMEOUT   = 120.0
+
+
+def _request_headers() -> dict:
+    """
+    Headers for outgoing A2A calls.
+
+    Mirrors the services' declared securitySchemes: a Bearer token in the
+    HTTP Authorization header (from A2A_BEARER_TOKEN). Empty dict when auth
+    is disabled, so local dev calls stay identical to before.
+    """
+    header = auth_header()
+    if not header:
+        return {}
+    return {"Authorization": header}
 
 
 def discover_agent(base_url: str) -> dict:
     """Fetch an Agent Card to discover capabilities. Returns {} if unreachable."""
     card_url = f"{base_url.rstrip('/')}/.well-known/agent-card.json"
     try:
-        response = httpx.get(card_url, timeout=5.0)
+        response = httpx.get(card_url, headers=_request_headers(), timeout=5.0)
         response.raise_for_status()
         return response.json()
     except Exception as e:
@@ -51,7 +67,17 @@ def send_task(
 
     url = f"{base_url.rstrip('/')}/"
     try:
-        response = httpx.post(url, json=payload, timeout=timeout)
+        response = httpx.post(url, json=payload, headers=_request_headers(), timeout=timeout)
+
+        # Auth failures never raise: surface them as error dicts like the
+        # rest of this client's failure paths.
+        if response.status_code in (401, 403):
+            try:
+                body = response.json()
+            except Exception:
+                body = None
+            return {"error": unauthorized_digest(response.status_code, body)}
+
         response.raise_for_status()
         data = response.json()
 
