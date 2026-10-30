@@ -1,4 +1,4 @@
-# Learning Accelerator
+# Learning Accelerator System
 
 A multi agent learning system that plans a curriculum, teaches from your own
 notes, quizzes you, and adapts based on how well you actually understand the
