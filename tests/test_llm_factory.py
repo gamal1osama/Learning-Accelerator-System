@@ -39,11 +39,11 @@ class TestEnvAccessors:
 
     def test_default_model_name(self, monkeypatch):
         monkeypatch.delenv("LITELLM_MODEL", raising=False)
-        assert get_model_name() == "notes-helper"
+        assert get_model_name() == "learning-accelerator"
 
     def test_model_name_overridden(self, monkeypatch):
-        monkeypatch.setenv("LITELLM_MODEL", "notes-helper-alias2")
-        assert get_model_name() == "notes-helper-alias2"
+        monkeypatch.setenv("LITELLM_MODEL", "learning-accelerator-alias2")
+        assert get_model_name() == "learning-accelerator-alias2"
 
 
 class TestBuildLLM:
@@ -53,7 +53,7 @@ class TestBuildLLM:
     def test_returns_chat_openai_pointing_at_gateway(self, mock_chat):
         build_llm(temperature=0.3)
         kwargs = mock_chat.call_args.kwargs
-        assert kwargs["model"] == "notes-helper"
+        assert kwargs["model"] == "learning-accelerator"
         assert kwargs["base_url"] == "http://localhost:4000"
         assert kwargs["temperature"] == 0.3
         assert "model_kwargs" not in kwargs

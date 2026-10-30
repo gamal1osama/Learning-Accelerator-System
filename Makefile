@@ -146,8 +146,8 @@ test:
 test-postgres:
 	@echo "Running Postgres checkpointer integration tests..."
 	@docker compose -f docker-compose.checkpoint.yml up -d --wait
-	TEST_CHECKPOINT_DB_URL=postgresql://notes:notes@localhost:5433/notes_helper \
-	TEST_CHECKPOINT_DB_URL_UI=postgresql://notes:notes@localhost:5433/notes_helper_ui \
+	TEST_CHECKPOINT_DB_URL=postgresql://notes:notes@localhost:5433/learning_accelerator \
+	TEST_CHECKPOINT_DB_URL_UI=postgresql://notes:notes@localhost:5433/learning_accelerator_ui \
 	$(PYTEST) tests/test_checkpointing.py -v
 
 eval:

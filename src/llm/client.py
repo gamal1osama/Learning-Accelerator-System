@@ -15,7 +15,7 @@ from langchain_openai import ChatOpenAI
 
 DEFAULT_GATEWAY_URL = "http://localhost:4000"
 DEFAULT_GATEWAY_KEY = "sk-local-gateway"
-DEFAULT_GATEWAY_MODEL = "notes-helper"
+DEFAULT_GATEWAY_MODEL = "learning-accelerator"
 
 
 def get_base_url() -> str:

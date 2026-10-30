@@ -77,7 +77,7 @@ not an app concern. Change the `model:` line to a model you have pulled and
 restart the gateway:
 
 ```yaml
-  - model_name: notes-helper
+  - model_name: learning-accelerator
     litellm_params:
       model: ollama_chat/qwen2.5-coder:32b
       api_base: os.environ/OLLAMA_BASE_URL

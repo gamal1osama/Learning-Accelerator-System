@@ -6,8 +6,8 @@
 # touches Langfuse. Two databases keep the terminal and Streamlit
 # sessions isolated, mirroring the old checkpoints.db / checkpoints_ui.db
 # file split:
-#   notes_helper     -> main.py       (CHECKPOINT_DB_URL)
-#   notes_helper_ui  -> streamlit_app (CHECKPOINT_DB_URL_UI)
+#   learning_accelerator     -> main.py       (CHECKPOINT_DB_URL)
+#   learning_accelerator_ui  -> streamlit_app (CHECKPOINT_DB_URL_UI)
 #
 # Start:  make postgres
 # Stop:   make postgres-stop
@@ -18,14 +18,14 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U notes -d notes_helper"]
+      test: ["CMD-SHELL", "pg_isready -U notes -d learning_accelerator"]
       interval: 3s
       timeout: 3s
       retries: 10
     environment:
       POSTGRES_USER: notes
       POSTGRES_PASSWORD: notes
-      POSTGRES_DB: notes_helper
+      POSTGRES_DB: learning_accelerator
       TZ: UTC
       PGTZ: UTC
     ports:

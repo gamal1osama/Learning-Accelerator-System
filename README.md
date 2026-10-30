@@ -1,4 +1,4 @@
-# Notes Helper Agent
+# Learning Accelerator
 
 A multi agent learning system that plans a curriculum, teaches from your own
 notes, quizzes you, and adapts based on how well you actually understand the
@@ -99,10 +99,10 @@ Then edit `.env` and point the stack at your Ollama endpoint:
 ```env
 LITELLM_BASE_URL=http://localhost:4000
 LITELLM_API_KEY=sk-local-gateway
-LITELLM_MODEL=notes-helper
+LITELLM_MODEL=learning-accelerator
 OLLAMA_BASE_URL=http://localhost:11434
-CHECKPOINT_DB_URL=postgresql://notes:notes@localhost:5433/notes_helper
-CHECKPOINT_DB_URL_UI=postgresql://notes:notes@localhost:5433/notes_helper_ui
+CHECKPOINT_DB_URL=postgresql://notes:notes@localhost:5433/learning_accelerator
+CHECKPOINT_DB_URL_UI=postgresql://notes:notes@localhost:5433/learning_accelerator_ui
 ```
 
 Start the checkpoint store and the gateway, pull the model if needed, then
@@ -215,11 +215,11 @@ What is different:
 * Quiz answers are typed in a text area instead of the terminal
 * One **graceful unfinished-topic flow**: if you refresh or close the
   browser mid session, your progress stays in the checkpoint store (the
-  `notes_helper_ui` database), separate from the terminal's `notes_helper`
+  `learning_accelerator_ui` database), separate from the terminal's `learning_accelerator`
   database, so web and terminal sessions never clobber each other
 * Cross resume is not available between interfaces: browser sessions are
-  checkpointed in `notes_helper_ui` while `make resume SESSION=<id>` reads
-  the terminal database `notes_helper`. Take the session ID from the
+  checkpointed in `learning_accelerator_ui` while `make resume SESSION=<id>` reads
+  the terminal database `learning_accelerator`. Take the session ID from the
   COMPLETE screen of a terminal session to use `make resume`
 
 If you leave the checkpoint URLs empty, both interfaces fall back to the
@@ -436,7 +436,7 @@ All configuration lives in `.env` (copy from `.env.example`):
 |---|---|
 | `LITELLM_BASE_URL` | Gateway endpoint the agents call (default `http://localhost:4000`) |
 | `LITELLM_API_KEY` | Key the app sends as Bearer. Unenforced in local mode (127.0.0.1-only gateway) |
-| `LITELLM_MODEL` | Model alias registered in `litellm_config.yaml` (default `notes-helper`) |
+| `LITELLM_MODEL` | Model alias registered in `litellm_config.yaml` (default `learning-accelerator`) |
 | `OLLAMA_BASE_URL` | Where the **gateway** reaches Ollama (used by `litellm_config.yaml`) |
 | `CHECKPOINT_DB_URL` | PostgreSQL DSN for the terminal graph (empty = SQLite fallback) |
 | `CHECKPOINT_DB_URL_UI` | PostgreSQL DSN for the Streamlit graph (empty = SQLite fallback) |
@@ -547,7 +547,7 @@ empty. New sessions go to Postgres.
 
 **Gateway returns "model not found" / 404**
 `litellm_config.yaml` registers the alias your agents use (default
-`notes-helper`) and maps it to an Ollama model. Make sure the Ollama model
+`learning-accelerator`) and maps it to an Ollama model. Make sure the Ollama model
 in the config matches something you pulled.
 
 **Requests fail against ngrok / remote Ollama**

@@ -30,7 +30,7 @@ Accelerator multi-agent system.
                               ▼
 ┌──────────────────────────────────────────────────────────────┐
 │              LiteLLM gateway (localhost:4000)                 │
-│   model alias "notes-helper" → routing per litellm_config     │
+│   model alias "learning-accelerator" → routing per litellm_config     │
 └──────────────────────────────────────────────────────────────┘
                               ▼
 ┌──────────────────────────────────────────────────────────────┐
@@ -183,8 +183,8 @@ Postgres mode that is two databases in the same instance:
 
 | Interface | Env var | Database |
 |---|---|---|
-| Terminal (`main.py`) | `CHECKPOINT_DB_URL` | `notes_helper` |
-| Web (`streamlit_app.py`) | `CHECKPOINT_DB_URL_UI` | `notes_helper_ui` |
+| Terminal (`main.py`) | `CHECKPOINT_DB_URL` | `learning_accelerator` |
+| Web (`streamlit_app.py`) | `CHECKPOINT_DB_URL_UI` | `learning_accelerator_ui` |
 
 With SQLite the equivalent split is `data/checkpoints.db` and
 `data/checkpoints_ui.db`. Cross-interface resume is unavailable in both

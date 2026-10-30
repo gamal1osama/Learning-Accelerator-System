@@ -12,26 +12,26 @@ model_list:
   # tool calling needs (the raw `ollama/` prefix maps to /api/generate
   # instead). The model must match something you pulled:
   #   ollama pull qwen2.5:7b
-  - model_name: notes-helper
+  - model_name: learning-accelerator
     litellm_params:
       model: ollama_chat/qwen2.5:7b
       api_base: os.environ/OLLAMA_BASE_URL
 
   # ── Optional fallback routing (commented out) ─────────────────────────
   # Uncomment to route GPT-4 primary with Claude and Ollama as fallbacks,
-  # then switch LITELLM_MODEL to `notes-helper-gpt4` in .env. Agent code
+  # then switch LITELLM_MODEL to `learning-accelerator-gpt4` in .env. Agent code
   # needs no changes; the gateway does the failover transparently.
-  # - model_name: notes-helper-gpt4
+  # - model_name: learning-accelerator-gpt4
   #   litellm_params:
   #     model: openai/gpt-4
   #     api_key: os.environ/OPENAI_API_KEY
-  # - model_name: notes-helper-claude
+  # - model_name: learning-accelerator-claude
   #   litellm_params:
   #     model: anthropic/claude-sonnet-4
   #     api_key: os.environ/ANTHROPIC_API_KEY
   # litellm_settings:
   #   fallbacks:
-  #     - { "notes-helper-gpt4": ["notes-helper-claude", "notes-helper"] }
+  #     - { "learning-accelerator-gpt4": ["learning-accelerator-claude", "learning-accelerator"] }
 
 litellm_settings:
   # Drop parameters a given provider cannot handle instead of failing

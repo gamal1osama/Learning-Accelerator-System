@@ -62,7 +62,7 @@ from a2a_services.auth import (
 
 GATEWAY_BASE_URL = os.getenv("LITELLM_BASE_URL", "http://localhost:4000").rstrip("/")
 GATEWAY_API_KEY = os.getenv("LITELLM_API_KEY", "sk-local-gateway")
-GATEWAY_MODEL = os.getenv("LITELLM_MODEL", "notes-helper")
+GATEWAY_MODEL = os.getenv("LITELLM_MODEL", "learning-accelerator")
 
 
 # CrewAI Tools

@@ -16,7 +16,7 @@ services:
     # Python venv needs no litellm packages). Tracks the stable chart;
     # pin to a digest if you need exact reproducibility.
     image: ghcr.io/berriai/litellm:main-stable
-    container_name: notes-helper-gateway
+    container_name: learning-accelerator-gateway
     command: ["--config", "/app/litellm_config.yaml", "--host", "0.0.0.0", "--port", "4000"]
     ports:
       - "127.0.0.1:4000:4000"
