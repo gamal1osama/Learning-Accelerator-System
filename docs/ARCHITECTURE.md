@@ -52,7 +52,8 @@ LangGraph models the agent workflow as a directed graph where:
 - **Nodes** are Python functions (agents or utilities)
 - **Edges** define routing, static or conditional
 - **State** is a typed `dict` shared across all nodes
-- **Checkpoints** are saved to SQLite after every node execution
+- **Checkpoints** are saved after every node execution to PostgreSQL
+  (SQLite fallback for development)
 
 The alternative (a simple loop) loses all progress on crash and cannot
 support human-in-the-loop approval without invasive changes. LangGraph
@@ -81,17 +82,48 @@ LangGraph merges the update into the full state.
 
 ### Checkpointing
 
-We call `sqlite3.connect(db_path, check_same_thread=False)` directly and pass
-the connection to `SqliteSaver(conn)` (see `src/graph/workflow.py`).
-The `check_same_thread=False` flag is required because LangGraph runs node
-functions and checkpoint writes on different threads internally.
-The connection stays open for the process lifetime, this is intentional.
+LangGraph's checkpoint interface is backend-agnostic, so the graph and every
+agent are identical whichever store is active. The backend is chosen in
+`src/graph/checkpointer.py`:
+
+| Condition | Backend |
+|---|---|
+| `CHECKPOINT_DB_URL` (terminal) or `CHECKPOINT_DB_URL_UI` (web) is set | `PostgresSaver` |
+| both are empty | `SqliteSaver` (legacy, single process) |
+
+Postgres is the production path because a shared store lets several
+instances of `main.py` or the Streamlit app run against the same sessions:
+any instance can resume a thread another one started, and sessions survive
+instance restarts.
 
 ```python
-conn = sqlite3.connect(db_path, check_same_thread=False)
-checkpointer = SqliteSaver(conn)
-graph = builder.compile(checkpointer=checkpointer)
+# Postgres: pool-backed saver (see graph/checkpointer.py)
+pool = ConnectionPool(conninfo=dsn, min_size=0, max_size=4,
+                      kwargs={"autocommit": True})
+checkpointer = PostgresSaver(pool)
+checkpointer.setup()
 ```
+
+Two details matter:
+
+1. **Connection pool, not a raw connection.** Streamlit runs sessions on
+   threads and a psycopg3 connection is not thread-safe. The pool also
+   reconnects transparently when the Postgres container restarts.
+2. **`setup()` on its own autocommit connection, under an advisory lock.**
+   LangGraph's migrations include `CREATE INDEX CONCURRENTLY`, which cannot
+   run inside a transaction block. The session-level advisory lock
+   serializes simultaneous first starts of multiple instances so they
+   cannot race the table creation.
+
+The legacy SQLite path is unchanged: a direct
+`sqlite3.connect(db_path, check_same_thread=False)` passed to
+`SqliteSaver(conn)`. The connection stays open for the process lifetime,
+this is intentional. `check_same_thread=False` is required because
+LangGraph runs node functions and checkpoint writes on different threads.
+
+Because both backends serialize state the same way, values read back after
+a checkpoint round-trip may be plain dicts (`msgpack`/JsonPlus). The
+helpers in `graph/state.py` and both entry points already coerce them.
 
 ### Human-in-the-loop
 
@@ -102,11 +134,15 @@ The same mechanism works for web UIs, the only difference is how
 input is collected.
 
 ```python
-# streamlit_app.py: a second compiled graph for the web interface
-ui_graph = build_graph(
-    db_path="data/checkpoints_ui.db",
-    interrupt_before=["quiz_generator"],
-)
+# streamlit_app.py: a second compiled graph for the web interface.
+# Cached with @st.cache_resource because the script re-runs per interaction.
+@st.cache_resource
+def get_ui_graph():
+    return build_graph(
+        db_path="data/checkpoints_ui.db",        # SQLite fallback only
+        interrupt_before=["quiz_generator"],
+        dsn_env_var="CHECKPOINT_DB_URL_UI",      # Postgres when set
+    )
 ```
 
 ---
@@ -139,11 +175,22 @@ node had executed, so `invoke(None)` continues at `progress_coach` without
 re-running the quiz node. The graph logic, A2A delegation, and coach loop
 are literally identical to terminal mode.
 
-### Separate checkpoint file
+### Separate checkpoint databases
 
-The UI graph uses `data/checkpoints_ui.db` so web and terminal sessions
-cannot corrupt each other's checkpoint threads. Two concurrent interfaces
-use the same architecture with independent persistence.
+The UI graph uses a separate store from the terminal graph so web and
+terminal sessions cannot corrupt each other's checkpoint threads. In
+Postgres mode that is two databases in the same instance:
+
+| Interface | Env var | Database |
+|---|---|---|
+| Terminal (`main.py`) | `CHECKPOINT_DB_URL` | `notes_helper` |
+| Web (`streamlit_app.py`) | `CHECKPOINT_DB_URL_UI` | `notes_helper_ui` |
+
+With SQLite the equivalent split is `data/checkpoints.db` and
+`data/checkpoints_ui.db`. Cross-interface resume is unavailable in both
+modes because the UI graph compiles with `interrupt_before=["quiz_generator"]`
+while the terminal graph does not; the thread semantics are not
+interchangeable.
 
 ### UI state machine
 
@@ -318,6 +365,10 @@ output quality.
 See `docs/MODEL_SELECTION.md` for model recommendations by hardware.
 
 For deploying beyond local development:
+- ~~Replace SQLite checkpoints with a shared store~~ **Done** — checkpoints
+  use PostgreSQL (`PostgresSaver`) when `CHECKPOINT_DB_URL*` are set, so
+  multiple instances share sessions; SQLite remains a single-process
+  fallback
 - Replace `InMemoryTaskStore` with a persistent store (PostgreSQL)
 - Replace `MemoryServer._store` dict with Redis
 - ~~Add authentication to A2A services~~ **Done** — auth is implemented

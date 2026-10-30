@@ -47,21 +47,34 @@ from observability.langfuse_setup import get_langfuse_config, flush_langfuse
 from agents.quiz_generator import generate_questions, grade_answer
 
 
-# Build a UI-specific graph with interrupt_before=["quiz_generator"]
-# This stops the graph before quiz_generator runs so the UI can handle
-# quiz I/O without calling input() which would block Streamlit.
-ui_graph = build_graph(
-    db_path="data/checkpoints_ui.db",
-    interrupt_before=["quiz_generator"],
-)
-
-
 # Page config
 st.set_page_config(
     page_title="Learning Accelerator",
     page_icon="🎓",
     layout="centered",
 )
+
+
+# Build a UI-specific graph with interrupt_before=["quiz_generator"]
+# This stops the graph before quiz_generator runs so the UI can handle
+# quiz I/O without calling input() which would block Streamlit.
+#
+# Cached: Streamlit re-runs this whole script on every interaction. With
+# Postgres checkpointing an uncached build would open a new pool (and
+# re-verify the schema) on every click. Caching is safe because the graph
+# object is stateless per session: all session state lives in the external
+# checkpoint store behind the thread_id.
+
+@st.cache_resource(show_spinner=False)
+def get_ui_graph():
+    return build_graph(
+        db_path="data/checkpoints_ui.db",
+        interrupt_before=["quiz_generator"],
+        dsn_env_var="CHECKPOINT_DB_URL_UI",
+    )
+
+
+ui_graph = get_ui_graph()
 
 
 # Session state initialisation

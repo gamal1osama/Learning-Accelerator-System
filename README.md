@@ -14,7 +14,8 @@ The system is orchestrated by LangGraph and demonstrates three distinct
 agentic patterns working together:
 
 1. **LangGraph orchestration**: five specialized agents in a stateful graph
-   with SQLite checkpointing and human in the loop approval
+   with PostgreSQL-backed checkpointing (SQLite fallback) and human in the
+   loop approval
 2. **Agent to Agent (A2A) protocol**: the Progress Coach delegates work to two
    independently running services over JSON RPC
 3. **Cross framework interop**: one A2A service is built with LangGraph, the
@@ -77,13 +78,14 @@ Workflow per topic:
 | A2A delegation | Progress Coach calls external services transparently, with graceful fallback |
 | Cross framework A2A | LangGraph can call CrewAI through a protocol contract |
 | Observability | Langfuse traces for every LLM call, tool call, and agent step |
-| Checkpointing | Any session can be stopped and resumed with its session ID |
+| Checkpointing | Sessions are stored in PostgreSQL, so any instance can stop, restart, and resume them |
 | Two interfaces | Full session in the terminal (`make run`) or the browser (`make streamlit`), identical graph underneath |
 
 ## Requirements
 
 * Python 3.11 or newer
-* Docker. Required for the LiteLLM gateway; optional for the Langfuse observability stack
+* Docker. Required for the LiteLLM gateway and the checkpoint PostgreSQL;
+  optional for the Langfuse observability stack
 * An Ollama endpoint. Local (`http://localhost:11434`) or remote over HTTPS
 
 ## Quickstart
@@ -99,15 +101,19 @@ LITELLM_BASE_URL=http://localhost:4000
 LITELLM_API_KEY=sk-local-gateway
 LITELLM_MODEL=notes-helper
 OLLAMA_BASE_URL=http://localhost:11434
+CHECKPOINT_DB_URL=postgresql://notes:notes@localhost:5433/notes_helper
+CHECKPOINT_DB_URL_UI=postgresql://notes:notes@localhost:5433/notes_helper_ui
 ```
 
-Start the gateway, pull the model if needed, then pick your interface:
+Start the checkpoint store and the gateway, pull the model if needed, then
+pick your interface:
 
 Terminal:
 
 ```bash
 ollama pull qwen2.5:7b
 
+make postgres     # checkpoint PostgreSQL on :5433
 make gateway      # LiteLLM gateway (docker) on :4000, routes to Ollama
 make langfuse     # optional but recommended
 make services     # start both A2A services in the background
@@ -117,6 +123,7 @@ make run
 Or the web interface:
 
 ```bash
+make postgres
 make gateway
 make services
 make streamlit   # then open http://localhost:8501
@@ -207,15 +214,17 @@ What is different:
 
 * Quiz answers are typed in a text area instead of the terminal
 * One **graceful unfinished-topic flow**: if you refresh or close the
-  browser mid session, your progress stays in the checkpoint database
-  (`data/checkpoints_ui.db`), a separate file from the terminal's
-  `data/checkpoints.db`, so web and terminal sessions never clobber
-  each other
+  browser mid session, your progress stays in the checkpoint store (the
+  `notes_helper_ui` database), separate from the terminal's `notes_helper`
+  database, so web and terminal sessions never clobber each other
 * Cross resume is not available between interfaces: browser sessions are
-  checkpointed in `checkpoints_ui.db` while `make resume
-  SESSION=<id>` reads the terminal checkpoint `checkpoints.db`. Take
-  the session ID from the COMPLETE screen of a terminal session to use
-  `make resume`
+  checkpointed in `notes_helper_ui` while `make resume SESSION=<id>` reads
+  the terminal database `notes_helper`. Take the session ID from the
+  COMPLETE screen of a terminal session to use `make resume`
+
+If you leave the checkpoint URLs empty, both interfaces fall back to the
+legacy SQLite files (`data/checkpoints.db` and `data/checkpoints_ui.db`)
+with the same isolation.
 
 Nothing needs to change between interfaces: you can study one session in
 the browser and finish it in the terminal, and the A2A services
@@ -245,10 +254,15 @@ current topic index, quiz results, accumulated weak areas, chat messages, and
 the session ID. Each node reads what it needs and returns only its own
 updates, which keeps agents decoupled.
 
-**Persistence.** Every state change is checkpointed to SQLite, keyed by the
-session ID used as the LangGraph thread ID. This is what makes the human
+**Persistence.** Every state change is checkpointed to PostgreSQL, keyed by
+the session ID used as the LangGraph thread ID. This is what makes the human
 approval interrupt and the resume command possible: stopping the process
 loses nothing, and resuming replays the graph from the last checkpoint.
+Because the store is shared rather than a per-process file, several
+`main.py` or Streamlit instances can run against the same database, and any
+of them can pick up a session another instance started. If the checkpoint
+URLs are empty the app falls back to SQLite, which keeps single-process
+development working without Docker.
 
 **MCP tools.** The agents call tools through the Model Context Protocol.
 Two servers are registered:
@@ -424,7 +438,9 @@ All configuration lives in `.env` (copy from `.env.example`):
 | `LITELLM_API_KEY` | Key the app sends as Bearer. Unenforced in local mode (127.0.0.1-only gateway) |
 | `LITELLM_MODEL` | Model alias registered in `litellm_config.yaml` (default `notes-helper`) |
 | `OLLAMA_BASE_URL` | Where the **gateway** reaches Ollama (used by `litellm_config.yaml`) |
-| `CHECKPOINT_DB` | SQLite checkpoint database path |
+| `CHECKPOINT_DB_URL` | PostgreSQL DSN for the terminal graph (empty = SQLite fallback) |
+| `CHECKPOINT_DB_URL_UI` | PostgreSQL DSN for the Streamlit graph (empty = SQLite fallback) |
+| `CHECKPOINT_DB` | Legacy SQLite checkpoint path, used only when the URLs above are empty |
 | `NOTES_PATH` | Directory with your markdown notes |
 | `LANGFUSE_*` | Langfuse keys. Leave empty to disable tracing |
 | `QUIZ_SERVICE_URL` / `STUDY_BUDDY_URL` | A2A endpoints |
@@ -446,6 +462,9 @@ files. Add your own notes there and the Explainer will teach from them.
 | `make gateway` | Start the LiteLLM gateway container on :4000 (Docker) |
 | `make gateway-stop` | Stop the LiteLLM gateway |
 | `make gateway-logs` | Tail the gateway container logs |
+| `make postgres` | Start the checkpoint PostgreSQL on :5433 (Docker) |
+| `make postgres-stop` | Stop the checkpoint PostgreSQL (data preserved) |
+| `make postgres-logs` | Tail the checkpoint PostgreSQL logs |
 | `make run` | Run the main application (terminal) |
 | `make streamlit` | Run the web interface at http://localhost:8501 |
 | `make run-goal GOAL='Learn async Python'` | Run with a custom goal |
@@ -454,15 +473,17 @@ files. Add your own notes there and the Explainer will teach from them.
 | `make stop` | Stop background A2A services |
 | `make langfuse` | Start the Langfuse docker stack |
 | `make test` | Fast unit tests (no LLM gateway needed) |
+| `make test-postgres` | Postgres checkpointer integration tests (starts Postgres) |
 | `make eval` | LLM as judge evaluation suite (~90 seconds, gateway required) |
-| `make clean` | Remove checkpoints, pycache, and pytest cache |
+| `make clean` | Remove SQLite checkpoints, pycache, and pytest cache |
 | `make help` | Full target list |
 
 ## Testing
 
 ```bash
-make test     # fast unit tests, no gateway or Ollama required
-make eval     # evaluation suite, requires the LiteLLM gateway
+make test           # fast unit tests, no gateway, Ollama, or Postgres required
+make test-postgres  # checkpoint persistence tests (starts Postgres on :5433)
+make eval           # evaluation suite, requires the LiteLLM gateway
 ```
 
 The test suite covers the LLM gateway factory, A2A client behavior (mocked
@@ -491,6 +512,7 @@ src/
   observability/       Langfuse configuration
 litellm_config.yaml    Gateway model routing and fallback configuration
 docker-compose.gateway.yml  LiteLLM gateway container definition
+docker-compose.checkpoint.yml  Checkpoint PostgreSQL container definition
 study_materials/       Your notes (markdown). Samples included
 tests/                 Unit and evaluation test suites
 main.py                Entry point and interrupt resume loop (terminal)
@@ -512,6 +534,16 @@ faster.
 **`make run` warns the gateway is not reachable**
 Start it with `make gateway`. Every agent talks to the LiteLLM gateway on
 `:4000`; without it, all LLM calls fail fast with a connection error.
+
+**Startup fails: "Could not initialise the Postgres checkpointer"**
+The checkpoint URLs in `.env` are set but Postgres is not running. Start it
+with `make postgres`, or clear `CHECKPOINT_DB_URL` / `CHECKPOINT_DB_URL_UI`
+to fall back to SQLite checkpoints.
+
+**Sessions from before the migration are missing**
+SQLite checkpoints are not importable into Postgres. Old sessions remain in
+`data/checkpoints.db` and are reachable only while the checkpoint URLs are
+empty. New sessions go to Postgres.
 
 **Gateway returns "model not found" / 404**
 `litellm_config.yaml` registers the alias your agents use (default

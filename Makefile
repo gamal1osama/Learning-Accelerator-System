@@ -12,9 +12,10 @@
 #   make eval       : run LLM-as-judge evaluation tests
 #   make clean      : remove generated files
 
-.PHONY: setup gateway gateway-stop gateway-logs run streamlit run-goal resume \
-        services stop langfuse langfuse-stop langfuse-logs test eval test-all \
-        clean clean-all help
+.PHONY: setup gateway gateway-stop gateway-logs postgres postgres-stop \
+        postgres-logs run streamlit run-goal resume services stop langfuse \
+        langfuse-stop langfuse-logs test test-postgres eval test-all clean \
+        clean-all help
 
 VENV = .venv
 PYTHON = $(VENV)/bin/python
@@ -55,6 +56,23 @@ gateway-stop:
 
 gateway-logs:
 	docker compose -f docker-compose.gateway.yml logs -f
+
+# Checkpoint store (PostgreSQL)
+# LangGraph checkpoints go to Postgres when CHECKPOINT_DB_URL /
+# CHECKPOINT_DB_URL_UI are set in .env. Without them the app falls back
+# to the legacy SQLite files (CHECKPOINT_DB). Independent of Langfuse.
+
+postgres:
+	@echo "Starting checkpoint PostgreSQL (:5433)..."
+	docker compose -f docker-compose.checkpoint.yml up -d --wait
+	@echo "Checkpoint Postgres up: localhost:5433 (logs: make postgres-logs)"
+
+postgres-stop:
+	docker compose -f docker-compose.checkpoint.yml down
+	@echo "Checkpoint Postgres stopped (data volume preserved)"
+
+postgres-logs:
+	docker compose -f docker-compose.checkpoint.yml logs -f
 
 # Running
 
@@ -125,6 +143,13 @@ test:
 	@echo "Running unit tests..."
 	$(PYTEST) tests/ -m "not eval" -v
 
+test-postgres:
+	@echo "Running Postgres checkpointer integration tests..."
+	@docker compose -f docker-compose.checkpoint.yml up -d --wait
+	TEST_CHECKPOINT_DB_URL=postgresql://notes:notes@localhost:5433/notes_helper \
+	TEST_CHECKPOINT_DB_URL_UI=postgresql://notes:notes@localhost:5433/notes_helper_ui \
+	$(PYTEST) tests/test_checkpointing.py -v
+
 eval:
 	@echo "Running evaluation tests (requires the LiteLLM gateway, ~90 seconds)..."
 	$(PYTEST) tests/test_eval.py -v -s -m eval
@@ -137,10 +162,12 @@ test-all:
 
 clean:
 	@echo "Cleaning generated files..."
-	@rm -f data/checkpoints.db
+	@rm -f data/checkpoints.db data/checkpoints_ui.db
 	@find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	@find . -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true
 	@echo "Clean complete (venv preserved)"
+	@echo "Note: Postgres-backed sessions are NOT removed. Stop them with"
+	@echo "      'make postgres-stop' or drop the checkpoint_postgres_data volume."
 
 clean-all: clean
 	@rm -rf $(VENV)
@@ -155,6 +182,9 @@ help:
 	@echo "  make gateway      Start the LiteLLM inference gateway (:4000, Docker)"
 	@echo "  make gateway-stop Stop the gateway"
 	@echo "  make gateway-logs Tail the gateway log"
+	@echo "  make postgres     Start checkpoint PostgreSQL (:5433, Docker)"
+	@echo "  make postgres-stop Stop checkpoint PostgreSQL"
+	@echo "  make postgres-logs Tail checkpoint PostgreSQL logs"
 	@echo "  make run          Run the main application"
 	@echo "  make run-goal GOAL='Learn async Python'  Run with custom goal"
 	@echo "  make resume SESSION=abc12345  Resume a stopped session"
@@ -166,6 +196,8 @@ help:
 	@echo "  make langfuse-stop  Stop Langfuse"
 	@echo ""
 	@echo "  make test         Run fast unit tests (~3 seconds)"
+	@echo "  make test-postgres Run Postgres checkpointer integration tests"
 	@echo "  make eval         Run eval tests (~90 seconds, gateway required)"
 	@echo ""
-	@echo "  make clean        Remove checkpoints and cache files"
+	@echo "  make clean        Remove SQLite checkpoints and cache files"
+	@echo "                    (Postgres data survives; see make postgres-stop)"

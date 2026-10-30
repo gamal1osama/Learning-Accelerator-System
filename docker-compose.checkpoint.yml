@@ -1,0 +1,39 @@
+# docker-compose.checkpoint.yml
+# Dedicated PostgreSQL for LangGraph checkpointing (:5433).
+#
+# Independent from the Langfuse stack (docker-compose.yml): checkpoint
+# data survives `make langfuse-stop`, and `make postgres-stop` never
+# touches Langfuse. Two databases keep the terminal and Streamlit
+# sessions isolated, mirroring the old checkpoints.db / checkpoints_ui.db
+# file split:
+#   notes_helper     -> main.py       (CHECKPOINT_DB_URL)
+#   notes_helper_ui  -> streamlit_app (CHECKPOINT_DB_URL_UI)
+#
+# Start:  make postgres
+# Stop:   make postgres-stop
+# Logs:   make postgres-logs
+
+services:
+  checkpoint-postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U notes -d notes_helper"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    environment:
+      POSTGRES_USER: notes
+      POSTGRES_PASSWORD: notes
+      POSTGRES_DB: notes_helper
+      TZ: UTC
+      PGTZ: UTC
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - checkpoint_postgres_data:/var/lib/postgresql/data
+      - ./docker/checkpoint-init:/docker-entrypoint-initdb.d:ro
+
+volumes:
+  checkpoint_postgres_data:
+    driver: local
