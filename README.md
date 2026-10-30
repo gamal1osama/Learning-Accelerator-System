@@ -84,6 +84,8 @@ Workflow per topic:
 ## Requirements
 
 * Python 3.11 or newer
+* [uv](https://docs.astral.sh/uv/) for dependency and virtual environment
+  management
 * Docker. Required for the LiteLLM gateway and the checkpoint PostgreSQL;
   optional for the Langfuse observability stack
 * An Ollama endpoint. Local (`http://localhost:11434`) or remote over HTTPS
@@ -132,6 +134,28 @@ make streamlit   # then open http://localhost:8501
 The program asks for a study goal, shows a proposed roadmap, waits for your
 approval, then teaches, quizzes, and coaches you topic by topic. You can exit
 at any point and resume later with `make resume SESSION=<session id>`.
+
+## Dependency management
+
+Dependencies are declared in `pyproject.toml` and resolved reproducibly in
+`uv.lock`. There is no `requirements.txt` to keep in sync.
+
+```bash
+make setup   # uv sync --locked: create/update .venv from the lockfile
+make sync    # reinstall the exact versions recorded in uv.lock
+make lock    # re-resolve dependencies after editing pyproject.toml
+```
+
+To add or remove a dependency, use uv so both files stay consistent:
+
+```bash
+uv add <package>             # runtime dependency
+uv add --dev <package>       # development/test dependency
+uv remove <package>
+make lock
+```
+
+Commit `pyproject.toml` and `uv.lock` together. Do not commit `.venv/`.
 
 ## How to use it
 
@@ -458,7 +482,9 @@ files. Add your own notes there and the Explainer will teach from them.
 
 | Target | Description |
 |---|---|
-| `make setup` | Create venv, install dependencies, copy `.env` |
+| `make setup` | Sync `.venv` from `uv.lock`, copy `.env` |
+| `make lock` | Update `uv.lock` after changing `pyproject.toml` |
+| `make sync` | Install the exact locked dependency versions |
 | `make gateway` | Start the LiteLLM gateway container on :4000 (Docker) |
 | `make gateway-stop` | Stop the LiteLLM gateway |
 | `make gateway-logs` | Tail the gateway container logs |
@@ -518,6 +544,8 @@ tests/                 Unit and evaluation test suites
 main.py                Entry point and interrupt resume loop (terminal)
 streamlit_app.py       Web interface (same graph, UI state machine)
 Makefile               One command targets for everything above
+pyproject.toml         Project metadata and declared dependencies
+uv.lock                Reproducible resolved dependency versions
 ```
 
 ## Troubleshooting
