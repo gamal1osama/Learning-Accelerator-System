@@ -2,7 +2,9 @@
 # One-command startup for the Learning Accelerator.
 #
 # Usage:
-#   make setup      : create venv and install dependencies
+#   make setup      : create/update the uv environment from uv.lock
+#   make lock       : update uv.lock after changing pyproject.toml
+#   make sync       : install the exact locked dependency versions
 #   make gateway    : start the LiteLLM inference gateway
 #   make run        : run the main application
 #   make services   : start both A2A services in background
@@ -12,23 +14,26 @@
 #   make eval       : run LLM-as-judge evaluation tests
 #   make clean      : remove generated files
 
-.PHONY: setup gateway gateway-stop gateway-logs postgres postgres-stop \
+.PHONY: setup lock sync gateway gateway-stop gateway-logs postgres postgres-stop \
         postgres-logs run streamlit run-goal resume services stop langfuse \
         langfuse-stop langfuse-logs test test-postgres eval test-all clean \
         clean-all help
 
+UV ?= uv
 VENV = .venv
 PYTHON = $(VENV)/bin/python
-PIP = $(PYTHON) -m pip
 PYTEST = $(VENV)/bin/pytest
 
 # Setup
 
 setup:
-	@echo "Setting up virtual environment..."
-	python3 -m venv $(VENV)
-	$(PIP) install --upgrade pip
-	$(PIP) install -r requirements.txt
+	@command -v $(UV) >/dev/null 2>&1 || { \
+		echo "uv is required but was not found on PATH."; \
+		echo "Install it from https://docs.astral.sh/uv/getting-started/installation/"; \
+		exit 1; \
+	}
+	@echo "Syncing environment from uv.lock..."
+	$(UV) sync --locked
 	@cp -n .env.example .env 2>/dev/null || true
 	@mkdir -p data
 	@echo ""
@@ -38,6 +43,14 @@ setup:
 	@echo "  3. Align the model in litellm_config.yaml with your pulled model"
 	@echo "     (default: ollama pull qwen2.5:7b)"
 	@echo "  4. make gateway && make run"
+
+lock:
+	@echo "Resolving dependencies and updating uv.lock..."
+	$(UV) lock
+
+sync:
+	@echo "Syncing environment from uv.lock..."
+	$(UV) sync --locked
 
 # Inference gateway
 # Every agent talks to this gateway; it routes to Ollama (see
@@ -178,7 +191,9 @@ clean-all: clean
 help:
 	@echo "Learning Accelerator, available commands:"
 	@echo ""
-	@echo "  make setup        Set up virtual environment and install deps"
+	@echo "  make setup        Sync the uv environment from uv.lock"
+	@echo "  make lock         Update uv.lock after changing pyproject.toml"
+	@echo "  make sync         Install exact locked dependency versions"
 	@echo "  make gateway      Start the LiteLLM inference gateway (:4000, Docker)"
 	@echo "  make gateway-stop Stop the gateway"
 	@echo "  make gateway-logs Tail the gateway log"
