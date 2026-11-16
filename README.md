@@ -73,6 +73,7 @@ Workflow per topic:
 | Adaptive roadmap | Topics generated from your goal with prerequisites and time estimates |
 | Human approval | Human approval checkpoint before studying starts |
 | Personal notes | The Explainer teaches from your own markdown notes via MCP tools |
+| Streaming explanations | In the browser, the Explainer's answer renders token by token as it is generated |
 | Conceptual quizzes | Questions test understanding, not memorization |
 | LLM as judge grading | Each answer graded with feedback, score, and identified weak areas |
 | A2A delegation | Progress Coach calls external services transparently, with graceful fallback |
@@ -221,7 +222,7 @@ Then open http://localhost:8501. The interface walks through five screens:
 |---|---|
 | GOAL_INPUT | Type what you want to learn, click "Build Study Plan" |
 | ROADMAP_APPROVAL | Review topics with prerequisites and time estimates; approve or ask for a new plan |
-| EXPLAINING | Read the explanation grounded in your notes, see the coach tip from the last topic, click "Start Quiz" |
+| EXPLAINING | Watch the explanation stream in as it is generated, read the notes-grounded content, see the coach tip from the last topic, click "Start Quiz" |
 | QUIZZING | Answer one question at a time in a text box; each answer is graded instantly with feedback and score; continue to the next topic when the quiz finishes |
 | COMPLETE | Session summary: per-topic scores, overall average, topics to revisit, your session ID |
 
@@ -237,6 +238,9 @@ What stays the same as terminal mode:
 What is different:
 
 * Quiz answers are typed in a text area instead of the terminal
+* The Explainer's answer **streams into the page** as the model generates
+  it. A status line shows which notes the agent is reading while its tool
+  calls run. The terminal interface still waits for the full response
 * One **graceful unfinished-topic flow**: if you refresh or close the
   browser mid session, your progress stays in the checkpoint store (the
   `learning_accelerator_ui` database), separate from the terminal's `learning_accelerator`
@@ -277,6 +281,13 @@ and returns updates. The edges and conditional edges define the control flow:
 current topic index, quiz results, accumulated weak areas, chat messages, and
 the session ID. Each node reads what it needs and returns only its own
 updates, which keeps agents decoupled.
+
+**Streaming.** The Streamlit interface consumes LangGraph's
+`stream_mode="messages"` events while the Explainer runs. It filters chunks
+to the Explainer node, discards tool-calling turns, and renders the final
+answer token by token. When the stream finishes, the UI reads the checkpoint
+state, so the explanation shown is always the same value the quiz uses.
+Checkpointing and the quiz interrupt are unchanged.
 
 **Persistence.** Every state change is checkpointed to PostgreSQL, keyed by
 the session ID used as the LangGraph thread ID. This is what makes the human
