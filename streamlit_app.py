@@ -25,6 +25,10 @@ Architecture:
     - Zero changes to quiz_generator_node or run_quiz()
     - The terminal interface (main.py) is completely unaffected
     - The LangGraph graph code is identical, only I/O changes
+
+    Explanations are streamed token by token through LangGraph's
+    stream_mode="messages". Only the Explainer's final answer is rendered;
+    tool-calling turns update the status line and are otherwise discarded.
 """
 
 import sys
@@ -37,12 +41,14 @@ from dotenv import load_dotenv
 # Explicit path: don't depend on cwd when streamlit runs the script
 load_dotenv(override=True, dotenv_path=Path(__file__).parent / ".env")
 
+import time
 import uuid
 import streamlit as st
 from langgraph.types import Command
 
 from graph.workflow import build_graph
 from graph.state import initial_state, StudyRoadmap, QuizResult, QuizQuestion
+from graph.streaming import iter_explanation_updates
 from observability.langfuse_setup import get_langfuse_config, flush_langfuse
 from agents.quiz_generator import generate_questions, grade_answer
 
@@ -159,6 +165,49 @@ def new_session():
     init_state()
 
 
+def stream_until_pause(graph_input, status_label: str) -> dict:
+    """
+    Run ui_graph while rendering Explainer tokens in the current screen.
+
+    Returns the checkpoint state after the graph pauses at its next
+    interrupt_before point.
+    """
+    config = st.session_state.graph_config
+    status_slot = st.empty()
+    status_slot.caption(status_label)
+    placeholder = st.empty()
+
+    full_text = ""
+    last_paint = 0.0
+    status_visible = True
+    try:
+        for update in iter_explanation_updates(ui_graph, graph_input, config):
+            if update.kind == "status":
+                status_slot.caption(update.status)
+                continue
+
+            if status_visible:
+                status_slot.empty()
+                status_visible = False
+
+            full_text = update.full_text
+            if update.kind == "reset":
+                placeholder.empty()
+                continue
+
+            now = time.monotonic()
+            if now - last_paint >= 0.05:
+                placeholder.markdown(f"{update.full_text}▌")
+                last_paint = now
+    finally:
+        if full_text:
+            placeholder.markdown(full_text)
+        if status_visible:
+            status_slot.empty()
+
+    return ui_graph.get_state(config).values
+
+
 # Graph interaction
 
 def start_session(goal: str):
@@ -201,18 +250,22 @@ def approve_roadmap(approved: bool):
     """
     decision = "yes" if approved else "no"
 
-    with st.spinner("Starting your study session..." if approved else "Generating a new plan..."):
-        result = ui_graph.invoke(
-            Command(resume=decision),
-            config=st.session_state.graph_config,
-        )
+    if not approved:
+        with st.spinner("Generating a new plan..."):
+            result = ui_graph.invoke(
+                Command(resume=decision),
+                config=st.session_state.graph_config,
+            )
 
-    if "__interrupt__" in result:
-        # Roadmap rejected, new plan generated
         payload = result["__interrupt__"][0].value
         st.session_state.roadmap = payload.get("roadmap")
         go_to("ROADMAP_APPROVAL")
         return
+
+    result = stream_until_pause(
+        Command(resume=decision),
+        "Explainer is researching your notes...",
+    )
 
     # Graph paused before quiz_generator, explainer has finished
     # result contains messages with the explanation
@@ -270,8 +323,7 @@ def advance_after_quiz(quiz_result: QuizResult):
     # or END if all topics are done.
     # Because interrupt_before=["quiz_generator"], if there is a next topic,
     # the graph will pause again before quiz_generator for that topic.
-    with st.spinner("Getting coaching feedback..."):
-        result = ui_graph.invoke(None, config=config)
+    result = stream_until_pause(None, "Getting coaching feedback...")
 
     # Extract coaching from messages
     messages = result.get("messages", [])
