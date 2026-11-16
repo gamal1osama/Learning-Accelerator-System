@@ -197,7 +197,37 @@ interchangeable.
 The app is a five screen state machine (GOAL_INPUT → ROADMAP_APPROVAL →
 EXPLAINING → QUIZZING → COMPLETE) driven by Streamlit session state and
 `st.rerun()`. Transitions that require the graph call `invoke()` inside
-spinners, keeping the UI responsive during LLM calls.
+spinners, or `stream()` when the Explainer's answer should render live.
+
+### Token streaming for explanations
+
+The two transitions that produce an explanation — roadmap approval and the
+next topic after a quiz — use `graph.stream(..., stream_mode="messages")`
+instead of `invoke()`. LangGraph's message stream emits an
+`AIMessageChunk` per token, tagged with metadata that includes
+`langgraph_node`; `ChatOpenAI` switches to its streaming path
+automatically when that callback is attached, so no agent changes are
+needed.
+
+`src/graph/streaming.py` isolates the UI-relevant events:
+
+1. Ignore chunks from nodes other than `explainer`, which filters out
+   `progress_coach` output during topic transitions.
+2. When a chunk carries `tool_call_chunks`, discard the accumulated text
+   and discard the rest of that LLM run. This prevents tool-planning
+   preamble from being rendered as the explanation.
+3. Accumulate text from the final tool-free assistant run and yield it to
+   the Streamlit placeholder.
+
+The UI throttles repaints to roughly 20 FPS. When the stream ends, it calls
+`ui_graph.get_state(config).values` to obtain the authoritative checkpoint
+state, then reuses the existing `extract_explanation()` logic and quiz
+generation. Streaming therefore changes only how the answer is displayed,
+not what is stored, graded, or traced.
+
+The terminal interface still uses `invoke()`. Streaming is a Streamlit-only
+presentation feature; the graph, checkpoints, Langfuse callbacks, and the
+`interrupt_before=["quiz_generator"]` contract are unchanged.
 
 ---
 
@@ -340,6 +370,7 @@ output quality.
    → MCP: read_study_file("closures.md") → content
    → LLM: produces grounded explanation
    → MCP: memory_set(session_id, "explained_topics", ...)
+   → Streamlit: tokens arrive through stream_mode="messages"
 
 5. quiz_generator_node(state)
    → LLM: generates 3 questions
