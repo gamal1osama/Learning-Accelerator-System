@@ -298,6 +298,6 @@ def progress_coach_node(state: dict) -> dict:
     return {
         "roadmap":               roadmap,
         "current_topic_index":   next_idx,
-        "messages":              [AIMessage(content=coaching["summary"])],
+        "messages":              [AIMessage(content=coaching["summary"], name="progress_coach")],
         "error":                 None,
     }
