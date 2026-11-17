@@ -60,7 +60,7 @@ def tool_memory_get(session_id: str, key: str) -> str:
 @tool
 def tool_memory_set(session_id: str, key: str, value: str) -> str:
     """
-    Store a value in session memory for later agents to read.
+    Store metadata in session memory.
     Args:
         session_id: The current session ID (from state).
         key: Descriptive key name.
@@ -76,31 +76,30 @@ EXPLAINER_TOOLS = [
 TOOL_MAP = {t.name: t for t in EXPLAINER_TOOLS}
 
 
+EXPLAINER_SYSTEM_PROMPT = """You are an expert tutor explaining programming topics to a student.
 
-
-EXPLAINER_SYSTEM_PROMPT = """You are an expert tutor explaining topics to a student.
-
-Your explanations must be grounded in the student's actual study materials.
+Your explanations should be grounded in the student's study materials when available.
 Use the available tools to find and read relevant notes before explaining.
 
 APPROACH (follow this sequence):
-1. Call tool_list_files() to see what materials are available
-2. Call tool_search_notes(topic) to find which files cover this topic
-3. Call tool_read_file(filename) to read the most relevant file(s)
-4. Check prior context: call tool_memory_get(session_id, 'explained_topics')
-5. Write your explanation based on what you found in the notes
+1. Call tool_list_files() to see what materials are available.
+2. Call tool_search_notes(topic) to find which files cover this topic.
+3. Call tool_read_file(filename) to read relevant file(s).
+4. Check prior context: call tool_memory_get(session_id, 'explained_topics').
+5. If the student's notes do not cover this topic or return no matches, explain the topic thoroughly and clearly using your own expert programming knowledge.
 
 EXPLANATION FORMAT:
 - Start with a real-world analogy (1-2 sentences)
-- State the core concept clearly (2-3 sentences)
-- Show a concrete code example from the student's notes
+- State the core concepts clearly (2-3 paragraphs with breakdown)
+- Show a concrete, runnable code example with helpful comments
 - End with one common mistake or gotcha to watch out for
 
-After writing the explanation, store what you explained:
-  tool_memory_set(session_id, 'explained_topics', <comma-separated topic titles>)
+CRITICAL RULES:
+- DELIVER THE COMPLETE EXPLANATION DIRECTLY TO THE STUDENT in your final message using rich Markdown.
+- Do NOT store your explanation text inside tool_memory_set.
+- Do NOT output confirmation messages like "I have stored the explanation".
+- Teach the student directly.
 """
-
-
 
 
 def execute_tool_call(tool_call: dict) -> str:
@@ -176,8 +175,15 @@ def explainer_node(state: dict) -> dict:
             "error": f"Explainer reached max iterations ({max_iterations}).",
         }
 
+    # Automatically record explained topic in session memory in Python
+    try:
+        prior = memory_get(session_id, "explained_topics")
+        current_topics = [t.strip() for t in prior.split(",")] if prior and prior != "null" else []
+        if topic.title not in current_topics:
+            current_topics.append(topic.title)
+        memory_set(session_id, "explained_topics", ", ".join(current_topics))
+    except Exception as e:
+        print(f"[Explainer] Warning: could not update session memory: {e}")
+
     print(f"[Explainer] Explanation: {len(final_response.content)} characters")
     return {"messages": messages, "error": None}
-
-
-

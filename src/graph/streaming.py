@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterator, Literal
 
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import AIMessage, BaseMessage
 
 EXPLAINER_NODE = "explainer"
 
@@ -128,3 +128,72 @@ def iter_explanation_updates(
         update = stream_filter.feed(message, metadata)
         if update is not None:
             yield update
+
+
+def extract_explanation(messages: list) -> str:
+    """Get the Explainer's final response, recovering substantive text if meta-message was generated."""
+    candidates = []
+    for msg in reversed(messages):
+        if isinstance(msg, AIMessage) and msg.content:
+            # Skip messages explicitly tagged from progress_coach
+            if getattr(msg, "name", None) == "progress_coach":
+                continue
+            text = str(msg.content).strip()
+            # If no tool calls, this is a standard final message candidate
+            if not getattr(msg, "tool_calls", None):
+                is_meta = len(text) < 250 and any(
+                    phrase in text.lower()
+                    for phrase in (
+                        "stored the explanation",
+                        "session memory",
+                        "stored in memory",
+                        "saved the explanation",
+                    )
+                )
+                if not is_meta:
+                    return text
+                candidates.append(text)
+            else:
+                # If an AIMessage had tool calls but also substantive explanation text, keep as candidate
+                if len(text) >= 200:
+                    candidates.append(text)
+
+    # Return longest candidate if available
+    if candidates:
+        return max(candidates, key=len)
+
+    # Fallback: check if explanation text was placed in a tool call argument
+    for msg in reversed(messages):
+        if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
+            for tc in msg.tool_calls:
+                if tc.get("name") == "tool_memory_set" and isinstance(tc.get("args"), dict):
+                    val = str(tc["args"].get("value", "")).strip()
+                    if len(val) >= 150:
+                        return val
+
+    return ""
+
+
+def extract_coaching(messages: list, explanation: str = "") -> str:
+    """Get the latest coaching message from progress_coach, never returning an explanation."""
+    norm_exp = explanation.strip()
+
+    # 1. Prefer message explicitly tagged as progress_coach
+    for msg in reversed(messages):
+        if isinstance(msg, AIMessage) and getattr(msg, "name", None) == "progress_coach":
+            content = str(msg.content).strip()
+            if content and content != norm_exp:
+                return content
+
+    # 2. Defensive fallback: find the most recent non-tool AIMessage whose content
+    # is clearly not an explanation (not identical to the explanation and short).
+    for msg in reversed(messages):
+        if isinstance(msg, AIMessage) and msg.content and not getattr(msg, "tool_calls", None):
+            text = str(msg.content).strip()
+            if norm_exp and text == norm_exp:
+                continue
+            # Coaching messages are short summaries (under 400 chars, no markdown headers/code)
+            if len(text) < 400 and not any(h in text for h in ["###", "##", "```", "---"]):
+                return text
+
+    return ""
