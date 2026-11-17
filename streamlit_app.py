@@ -514,7 +514,12 @@ def screen_quizzing():
             expected = q.get("expected_answer", "")
 
             with st.spinner("Grading your answer..."):
-                grade = grade_answer(question_text, expected, user_answer)
+                grade = grade_answer(
+                    question_text,
+                    expected,
+                    user_answer,
+                    q.get("key_points", []),
+                )
 
             graded_q = QuizQuestion(
                 question=question_text,
