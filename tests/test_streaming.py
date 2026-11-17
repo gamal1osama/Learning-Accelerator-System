@@ -1,10 +1,12 @@
 """Unit tests for LangGraph message stream filtering."""
 
-from langchain_core.messages import AIMessageChunk
+from langchain_core.messages import AIMessage, AIMessageChunk
 
 from graph.streaming import (
     DEFAULT_TOOL_STATUS,
     ExplainerStreamFilter,
+    extract_coaching,
+    extract_explanation,
     iter_explanation_updates,
 )
 
@@ -198,3 +200,61 @@ class TestIterExplanationUpdates:
                 "stream_mode": "messages",
             }
         ]
+
+
+class TestExtractExplanationAndCoaching:
+    def test_extract_explanation_standard(self):
+        messages = [
+            AIMessage(content="Checking notes...", tool_calls=[{"name": "tool_read_file", "args": {}, "id": "1"}]),
+            AIMessage(content="Functions in C++ allow code reusability. A function signature consists of..."),
+        ]
+        exp = extract_explanation(messages)
+        assert "Functions in C++ allow" in exp
+
+    def test_extract_explanation_ignores_progress_coach_message(self):
+        messages = [
+            AIMessage(content="Great job on the quiz! Keep going.", name="progress_coach"),
+            AIMessage(content="Functions in C++ allow code reusability. Here is an example..."),
+        ]
+        exp = extract_explanation(messages)
+        assert "Functions in C++ allow" in exp
+        assert "Great job" not in exp
+
+    def test_extract_coaching_tagged(self):
+        explanation = "Functions in C++ allow code reusability..."
+        messages = [
+            AIMessage(content="Great job on Variables! You scored 100%.", name="progress_coach"),
+            AIMessage(content=explanation),
+        ]
+        coach = extract_coaching(messages, explanation)
+        assert coach == "Great job on Variables! You scored 100%."
+
+    def test_extract_coaching_empty_when_no_coach_message(self):
+        # Topic 0: only explainer ran
+        explanation = "Introduction to Docker: Docker packages apps into containers..."
+        messages = [
+            AIMessage(content=explanation),
+        ]
+        coach = extract_coaching(messages, explanation)
+        assert coach == ""
+
+    def test_extract_coaching_never_duplicates_explanation(self):
+        explanation = "Sure, let's dive into functions and scope in C++..."
+        # Even if messages only contain the explanation, coaching must NEVER equal explanation
+        messages = [
+            AIMessage(content=explanation),
+        ]
+        coach = extract_coaching(messages, explanation)
+        assert coach == ""
+        assert coach != explanation
+
+    def test_extract_coaching_returns_latest_coach_message(self):
+        explanation = "Topic 3 explanation..."
+        messages = [
+            AIMessage(content="Topic 1 coach feedback.", name="progress_coach"),
+            AIMessage(content="Topic 2 explanation..."),
+            AIMessage(content="Topic 2 coach feedback: You scored 90%!", name="progress_coach"),
+            AIMessage(content=explanation),
+        ]
+        coach = extract_coaching(messages, explanation)
+        assert coach == "Topic 2 coach feedback: You scored 90%!"
