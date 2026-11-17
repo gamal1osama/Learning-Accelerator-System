@@ -48,7 +48,11 @@ from langgraph.types import Command
 
 from graph.workflow import build_graph
 from graph.state import initial_state, StudyRoadmap, QuizResult, QuizQuestion
-from graph.streaming import iter_explanation_updates
+from graph.streaming import (
+    extract_coaching,
+    extract_explanation,
+    iter_explanation_updates,
+)
 from observability.langfuse_setup import get_langfuse_config, flush_langfuse
 from agents.quiz_generator import generate_questions, grade_answer
 
@@ -104,6 +108,7 @@ def init_state():
         "coaching_message": "",
         "error": None,
         "goal": "",
+        "pending_resume": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -126,23 +131,6 @@ def get_roadmap() -> StudyRoadmap | None:
         return StudyRoadmap.from_dict(r)
     return r
 
-
-def extract_explanation(messages: list) -> str:
-    """Get the Explainer's final response, last AIMessage with no tool calls."""
-    from langchain_core.messages import AIMessage
-    for msg in reversed(messages):
-        if isinstance(msg, AIMessage) and msg.content and not getattr(msg, "tool_calls", None):
-            return msg.content
-    return ""
-
-
-def extract_coaching(messages: list) -> str:
-    """Get the latest coaching message."""
-    from langchain_core.messages import AIMessage
-    for msg in reversed(messages):
-        if isinstance(msg, AIMessage) and msg.content:
-            return msg.content
-    return ""
 
 
 def get_topic_info(result: dict, idx: int):
@@ -240,9 +228,8 @@ def approve_roadmap(approved: bool):
     Resume after roadmap decision.
 
     If approved:
-        Graph runs: human_approval_node → explainer_node
-        Then pauses at interrupt_before=["quiz_generator"]
-        We extract explanation and generate quiz questions.
+        Prepares state for topic 0, sets pending resume, and navigates
+        immediately to the EXPLAINING screen so the explanation streams live there.
 
     If rejected:
         Graph runs: human_approval_node → curriculum_planner → interrupt
@@ -262,35 +249,19 @@ def approve_roadmap(approved: bool):
         go_to("ROADMAP_APPROVAL")
         return
 
-    result = stream_until_pause(
-        Command(resume=decision),
-        "Explainer is researching your notes...",
-    )
-
-    # Graph paused before quiz_generator, explainer has finished
-    # result contains messages with the explanation
-    messages = result.get("messages", [])
-    explanation = extract_explanation(messages)
-    st.session_state.explanation = explanation
-
-    roadmap = result.get("roadmap") or st.session_state.roadmap
-    st.session_state.roadmap = roadmap
-    idx = result.get("current_topic_index", 0)
-    st.session_state.current_topic_index = idx
-
-    title, desc = get_topic_info(result, idx)
-    st.session_state.topic_title = title
-    st.session_state.topic_description = desc
-
-    # Generate quiz questions now
-    with st.spinner("Generating quiz questions..."):
-        questions = generate_questions(title, explanation, n=3)
-
-    st.session_state.quiz_questions = questions
-    st.session_state.current_question_idx = 0
+    # Transition to EXPLAINING screen immediately and queue the resume command
+    rm = get_roadmap()
+    st.session_state.current_topic_index = 0
+    st.session_state.explanation = ""
+    st.session_state.coaching_message = ""
+    st.session_state.quiz_questions = []
     st.session_state.graded_answers = []
     st.session_state.current_quiz_missing_concepts = []
-
+    if rm and rm.topics:
+        t0 = rm.topics[0]
+        st.session_state.topic_title = t0.title if hasattr(t0, "title") else t0.get("title", "")
+        st.session_state.topic_description = t0.description if hasattr(t0, "description") else t0.get("description", "")
+    st.session_state.pending_resume = Command(resume="yes")
     go_to("EXPLAINING")
 
 
@@ -298,15 +269,15 @@ def advance_after_quiz(quiz_result: QuizResult):
     """
     After the UI-handled quiz is complete:
     1. Inject the QuizResult into the checkpoint as if quiz_generator ran.
-    2. Resume graph from progress_coach → (explainer or END).
-    3. If explainer runs (more topics), pause again before next quiz_generator.
+    2. Advance topic index.
+    3. If more topics, transition to EXPLAINING to stream next topic explanation.
+    4. If done, go to COMPLETE.
     """
     config = st.session_state.graph_config
     existing = st.session_state.quiz_results
     all_weak = list(set(st.session_state.weak_areas + quiz_result.weak_areas))
 
-    # Tell LangGraph that quiz_generator has already run with this result.
-    # This sets the checkpoint state as if quiz_generator_node returned normally.
+    # Tell LangGraph that quiz_generator has already run with this result
     ui_graph.update_state(
         config,
         {
@@ -319,49 +290,27 @@ def advance_after_quiz(quiz_result: QuizResult):
         as_node="quiz_generator",
     )
 
-    # Resume, runs progress_coach, then either explainer (next topic)
-    # or END if all topics are done.
-    # Because interrupt_before=["quiz_generator"], if there is a next topic,
-    # the graph will pause again before quiz_generator for that topic.
-    result = stream_until_pause(None, "Getting coaching feedback...")
-
-    # Extract coaching from messages
-    messages = result.get("messages", [])
-    coaching = extract_coaching(messages)
-    st.session_state.coaching_message = coaching
-
-    # Update accumulated state
-    st.session_state.quiz_results = result.get("quiz_results", existing + [quiz_result])
-    st.session_state.weak_areas = result.get("weak_areas", all_weak)
-    new_idx = result.get("current_topic_index", st.session_state.current_topic_index + 1)
-    st.session_state.current_topic_index = new_idx
-    st.session_state.roadmap = result.get("roadmap", st.session_state.roadmap)
+    st.session_state.quiz_results = existing + [quiz_result]
+    st.session_state.weak_areas = all_weak
+    new_idx = st.session_state.current_topic_index + 1
 
     rm = get_roadmap()
-
-    # Session complete
     if rm is None or new_idx >= len(rm.topics):
         flush_langfuse()
         go_to("COMPLETE")
         return
 
-    # More topics, graph paused before next quiz_generator
-    # Extract explanation for the next topic from result messages
-    explanation = extract_explanation(messages)
-    st.session_state.explanation = explanation
-
-    title, desc = get_topic_info(result, new_idx)
-    st.session_state.topic_title = title
-    st.session_state.topic_description = desc
-
-    with st.spinner("Generating quiz questions..."):
-        questions = generate_questions(title, explanation, n=3)
-
-    st.session_state.quiz_questions = questions
-    st.session_state.current_question_idx = 0
+    # Set up next topic and transition to EXPLAINING screen
+    st.session_state.current_topic_index = new_idx
+    st.session_state.explanation = ""
+    st.session_state.coaching_message = ""
+    st.session_state.quiz_questions = []
     st.session_state.graded_answers = []
     st.session_state.current_quiz_missing_concepts = []
-
+    title, desc = get_topic_info({"roadmap": rm}, new_idx)
+    st.session_state.topic_title = title
+    st.session_state.topic_description = desc
+    st.session_state.pending_resume = "resume_next"
     go_to("EXPLAINING")
 
 
@@ -448,8 +397,47 @@ def screen_explaining():
         st.info(f"💬 **Coach:** {st.session_state.coaching_message}")
         st.markdown("---")
 
+    st.markdown("### Explanation")
+
+    # If streaming is needed for this topic:
+    if st.session_state.get("pending_resume"):
+        resume_cmd = st.session_state.pending_resume
+        st.session_state.pending_resume = None  # Consume pending resume
+
+        graph_input = resume_cmd if isinstance(resume_cmd, Command) else None
+        status_label = (
+            "Explainer is researching notes and preparing your explanation..."
+            if graph_input is not None
+            else "Getting coaching feedback and researching next topic..."
+        )
+
+        result = stream_until_pause(graph_input, status_label)
+
+        messages = result.get("messages", [])
+        explanation = extract_explanation(messages)
+        st.session_state.explanation = explanation
+
+        coaching = extract_coaching(messages, explanation)
+        st.session_state.coaching_message = coaching
+
+        roadmap = result.get("roadmap") or st.session_state.roadmap
+        st.session_state.roadmap = roadmap
+
+        with st.spinner("Preparing quiz questions..."):
+            questions = generate_questions(
+                st.session_state.topic_title,
+                explanation,
+                n=3,
+            )
+            st.session_state.quiz_questions = questions
+            st.session_state.current_question_idx = 0
+            st.session_state.graded_answers = []
+            st.session_state.current_quiz_missing_concepts = []
+
+        st.rerun()
+
+    # Display complete explanation
     if st.session_state.explanation:
-        st.markdown("### Explanation")
         st.markdown(st.session_state.explanation)
     else:
         st.warning("No explanation available, starting quiz with topic context.")
