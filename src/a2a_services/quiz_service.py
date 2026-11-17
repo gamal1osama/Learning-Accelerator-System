@@ -188,6 +188,7 @@ class QuizAgentExecutor(AgentExecutor):
                     q_data["question"],
                     q_data["expected_answer"],
                     answer,
+                    q_data.get("key_points", []),
                 )
                 score = float(grade.get("score", 0.0))
                 total_score += score

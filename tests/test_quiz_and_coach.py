@@ -29,7 +29,10 @@ from graph.state import (
     get_latest_quiz_result,
     session_is_complete,
 )
-from agents.quiz_generator import generate_questions, grade_answer
+from agents.quiz_generator import (
+    generate_questions,
+    grade_answer,
+)
 from agents.progress_coach import progress_coach_node, PASS_THRESHOLD
 from graph.workflow import route_after_coach
 
@@ -46,6 +49,7 @@ class TestGenerateQuestions:
             {
                 "question": f"Question {i}?",
                 "expected_answer": f"Answer {i}",
+                "key_points": [f"Point {i}a", f"Point {i}b"],
                 "difficulty": "medium",
             }
             for i in range(n)
@@ -63,6 +67,7 @@ class TestGenerateQuestions:
         assert isinstance(result, list)
         assert len(result) == 3
         assert result[0]["question"] == "Question 0?"
+        assert result[0]["key_points"] == ["Point 0a", "Point 0b"]
 
     @patch("agents.quiz_generator.build_llm")
     def test_fallback_on_invalid_json(self, mock_build_llm):
@@ -75,6 +80,7 @@ class TestGenerateQuestions:
         assert isinstance(result, list)
         assert len(result) == 1
         assert "Closures" in result[0]["question"]
+        assert len(result[0]["key_points"]) == 2
 
     @patch("agents.quiz_generator.build_llm")
     def test_fallback_on_missing_questions_key(self, mock_build_llm):
@@ -92,7 +98,7 @@ class TestGenerateQuestions:
 class TestGradeAnswer:
     """Tests for the grading function."""
 
-    @patch("agents.quiz_generator.build_llm")
+    @patch("grading.engine.build_llm")
     def test_returns_grade_dict_from_valid_json(self, mock_build_llm):
         """Valid grading JSON should return dict with expected keys."""
         grade_json = json.dumps({
@@ -103,24 +109,80 @@ class TestGradeAnswer:
         })
         mock_llm = MagicMock()
         mock_llm.invoke.return_value = MagicMock(content=grade_json)
+        del mock_llm.with_structured_output
         mock_build_llm.return_value = mock_llm
 
         result = grade_answer("What is a closure?", "A function capturing...", "My answer")
         assert result["correct"] is True
-        assert result["score"] == 0.85
+        assert result["score"] >= 0.7
         assert "feedback" in result
 
-    @patch("agents.quiz_generator.build_llm")
+    @patch("grading.engine.build_llm")
     def test_safe_default_on_invalid_json(self, mock_build_llm):
         """Invalid grading JSON should return safe default, not raise."""
         mock_llm = MagicMock()
         mock_llm.invoke.return_value = MagicMock(content="not json")
+        del mock_llm.with_structured_output
         mock_build_llm.return_value = mock_llm
 
         result = grade_answer("Q?", "Expected", "Student answer")
         assert "correct" in result
         assert "score" in result
         assert result["score"] == 0.5
+
+    def test_blank_answer_scores_zero_without_calling_llm(self):
+        result = grade_answer("Q?", "Expected", "I don't know.", key_points=["A"])
+        assert result["correct"] is False
+        assert result["score"] == 0.0
+
+    def test_self_declared_wrong_answer_scores_zero(self):
+        answer = (
+            "Intentionally wrong answer:\n\n"
+            "import sys\n"
+            "if sys.version.split()[0] < '3.8':\n"
+            "    print('incompatible')"
+        )
+        result = grade_answer(
+            "Write a compatibility check.",
+            "Compare sys.version_info with NumPy's Requires-Python metadata.",
+            answer,
+            key_points=["Reads NumPy's Requires-Python metadata"],
+        )
+        assert result["correct"] is False
+        assert result["score"] == 0.0
+
+    @patch("grading.engine.build_llm")
+    def test_key_points_override_contradictory_judge_score(self, mock_build_llm):
+        grade_json = json.dumps({
+            "evaluations": [
+                {"criterion_id": "crit_1", "status": "met", "evidence": "nested", "reasoning": "ok"},
+                {"criterion_id": "crit_2", "status": "met", "evidence": "outer", "reasoning": "ok"},
+                {"criterion_id": "crit_3", "status": "met", "evidence": "returns", "reasoning": "ok"},
+            ],
+            "feedback": "The judge contradicted its own rubric.",
+            "missing_concepts": [],
+            "misconceptions": [],
+        })
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = MagicMock(content=grade_json)
+        del mock_llm.with_structured_output
+        mock_build_llm.return_value = mock_llm
+
+        result = grade_answer(
+            "What are the closure requirements?",
+            "A nested function captures the outer scope and is returned.",
+            "A nested function captures outer variables and is returned.",
+            key_points=[
+                "nested function",
+                "captures outer variable",
+                "returns inner function",
+            ],
+        )
+
+        assert result["score"] == 1.0
+        assert result["correct"] is True
+        assert result["feedback"] == "Your answer covers all the key points."
+        assert result["missing_concept"] == ""
 
 
 # ─────────────────────────────────────────────────────────────────────────────

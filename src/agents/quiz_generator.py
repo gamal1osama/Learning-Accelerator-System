@@ -1,10 +1,18 @@
 # src/agents/quiz_generator.py
+"""
+Quiz Generator Agent.
+
+Generates conceptual quiz questions from study materials and coordinates
+quiz sessions. Evaluation and grading are delegated to the production
+GradingEngine in src/grading/.
+"""
 
 import json
 from datetime import datetime, timezone
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
+from grading import get_default_grader
 from graph.state import QuizQuestion, QuizResult, get_current_topic
 from llm import build_llm
 
@@ -25,6 +33,10 @@ Return ONLY valid JSON with no prose or markdown:
     {{
       "question": "Clear, specific question text ending with ?",
       "expected_answer": "Model answer in 1-3 sentences",
+      "key_points": [
+        "Specific concept or step the answer must mention",
+        "Second required concept or step"
+      ],
       "difficulty": "easy|medium|hard"
     }}
   ]
@@ -33,37 +45,43 @@ Return ONLY valid JSON with no prose or markdown:
 Rules:
   - Include at least one question about a common mistake or gotcha
   - expected_answer should be concise but complete
+  - Provide 2-4 key_points per question
+  - Each key point must be independently checkable and together cover
+    the expected_answer, not just repeat it
   - Avoid yes/no questions. Ask for explanation or demonstration
 """
 
-GRADING_PROMPT = """You are a fair teacher grading a student's answer.
 
-Question: {question}
-Model answer: {expected_answer}
-Student's answer: {student_answer}
+def _normalize_questions(questions: list) -> list[dict]:
+    """Validate and clean generated questions structure."""
+    normalized = []
+    for question in questions:
+        if not isinstance(question, dict):
+            continue
 
-Grade the answer fairly and consistently. Use this rubric:
-  - Fundamentally correct with minor gaps: 0.7-0.9
-  - Correct concept but imprecise: 0.5-0.7
-  - Partially correct: 0.3-0.5
-  - Fundamentally wrong: 0.0-0.2
-  - Non-answer ("I don't know", blank, off topic): 0.0
+        question_text = str(question.get("question", "")).strip()
+        expected = str(question.get("expected_answer", "")).strip()
+        if not question_text or not expected:
+            continue
 
-Do not invent credit for an answer that says nothing. If the student
-does not address the question, the score must be 0.0 and "correct" false.
+        key_points = [
+            str(kp).strip()
+            for kp in question.get("key_points", [])
+            if str(kp).strip()
+        ]
 
-Return ONLY valid JSON with no prose or markdown:
-{{
-  "correct": true,
-  "score": 0.0,
-  "feedback": "One specific sentence of feedback",
-  "missing_concept": ""
-}}
-"""
+        normalized.append({
+            "question": question_text,
+            "expected_answer": expected,
+            "key_points": key_points,
+            "difficulty": str(question.get("difficulty", "medium")).strip() or "medium",
+        })
+
+    return normalized
 
 
 def generate_questions(topic: str, explanation: str, n: int = 3) -> list[dict]:
-    """Generate n quiz questions from the Explainer's output."""
+    """Generate n quiz questions with rubric key points from the Explainer's output."""
     llm = build_llm(temperature=0.4, json_mode=True)
 
     prompt = GENERATION_PROMPT.format(n=n)
@@ -75,83 +93,43 @@ def generate_questions(topic: str, explanation: str, n: int = 3) -> list[dict]:
         data = json.loads(response.content)
         questions = data.get("questions", [])
         if questions and isinstance(questions, list):
-            return questions
+            normalized = _normalize_questions(questions)
+            if normalized:
+                return normalized
     except Exception as e:
         print(f"[Quiz Generator] LLM call failed during question generation: {e}")
 
-    # Fallback: one generic question
+    # Fallback: one generic question with explicit rubric points
     return [{
         "question": f"In your own words, explain the key concept of {topic} and why it matters.",
         "expected_answer": "A clear explanation demonstrating conceptual understanding.",
+        "key_points": [
+            "Explains the core idea in their own words",
+            "Explains why the idea matters",
+        ],
         "difficulty": "medium",
     }]
 
 
-def grade_answer(question: str, expected: str, student_answer: str) -> dict:
-    """Grade a student's answer using the LLM as judge."""
-    llm = build_llm(
-        temperature=0.1,   # Analytical: grading must be consistent
-        json_mode=True,
-    )
+def grade_answer(
+    question: str,
+    expected: str,
+    student_answer: str,
+    key_points: list[str] | None = None,
+) -> dict:
+    """
+    Grade a student's answer using the production GradingEngine.
 
-    prompt = GRADING_PROMPT.format(
+    Maintains backward compatibility with all callers expecting a dictionary.
+    """
+    grader = get_default_grader()
+    result = grader.grade(
         question=question,
-        expected_answer=expected,
+        expected=expected,
         student_answer=student_answer,
+        key_points=key_points,
     )
-
-    try:
-        response = llm.invoke([HumanMessage(content=prompt)])
-        raw = json.loads(response.content)
-        return _normalize_grade(raw)
-    except Exception as e:
-        print(f"[Quiz Generator] LLM call failed during grading: {e}")
-        return {
-            "correct": False,
-            "score": 0.5,
-            "feedback": "Could not grade automatically. Please review manually.",
-            "missing_concept": "",
-        }
-
-
-def _normalize_grade(raw: dict) -> dict:
-    """
-    Enforce internal consistency in the judge's output.
-
-    Small judge models sometimes contradict themselves (e.g. return
-    "correct": false together with "score": 0.85, or copy the prompt's
-    placeholder text into missing_concept). This normalises the result so
-    scores always agree with the correct flag and stay in range.
-    """
-    try:
-        score = float(raw.get("score", 0.0))
-    except (TypeError, ValueError):
-        score = 0.0
-    score = max(0.0, min(1.0, score))
-
-    correct = bool(raw.get("correct", False))
-    # The judge's binary verdict overrides a generous numeric score
-    if correct and score < 0.5:
-        score = 0.5
-    if not correct and score >= 0.5:
-        score = 0.45
-
-    missing = str(raw.get("missing_concept", "")).strip()
-    # Defensive massaging of the placeholder the model sometimes copies
-    GENERIC = "key concept missed"
-    if missing.lower().replace(",", " ").split() and (
-        missing.lower().startswith(GENERIC)
-        or "empty string" in missing.lower()
-        or len(missing) > 120
-    ):
-        missing = ""
-
-    return {
-        "correct": correct,
-        "score": score,
-        "feedback": str(raw.get("feedback", "")).strip(),
-        "missing_concept": missing,
-    }
+    return result.to_dict()
 
 
 def run_quiz(topic: str, explanation: str) -> QuizResult:
@@ -177,7 +155,12 @@ def run_quiz(topic: str, explanation: str) -> QuizResult:
             user_answer = "(no answer provided)"
 
         print("Grading...")
-        grade = grade_answer(question_text, expected, user_answer)
+        grade = grade_answer(
+            question_text,
+            expected,
+            user_answer,
+            q_data.get("key_points", []),
+        )
 
         score = float(grade.get("score", 0.0))
         correct = bool(grade.get("correct", False))
@@ -218,7 +201,6 @@ def run_quiz(topic: str, explanation: str) -> QuizResult:
     )
 
 
-
 def quiz_generator_node(state: dict) -> dict:
     """
     LangGraph node: Quiz Generator
@@ -231,9 +213,6 @@ def quiz_generator_node(state: dict) -> dict:
         return {"error": "No current topic. Curriculum Planner must run first"}
 
     # Extract the Explainer's final response from message history.
-    # The Explainer's output is the last AIMessage that has no tool_calls.
-    # Tool-calling responses have content too, but they also have tool_calls set.
-    from langchain_core.messages import AIMessage
     messages = state.get("messages", [])
     explanation = ""
     for msg in reversed(messages):
@@ -258,5 +237,3 @@ def quiz_generator_node(state: dict) -> dict:
         "weak_areas": all_weak_areas,
         "error": None,
     }
-
-    
