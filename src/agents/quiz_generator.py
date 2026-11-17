@@ -217,8 +217,14 @@ def quiz_generator_node(state: dict) -> dict:
     explanation = ""
     for msg in reversed(messages):
         if isinstance(msg, AIMessage) and msg.content and not getattr(msg, "tool_calls", None):
-            explanation = msg.content
-            break
+            text = str(msg.content).strip()
+            is_meta = len(text) < 250 and any(
+                p in text.lower()
+                for p in ("stored the explanation", "session memory", "stored in memory", "saved the explanation")
+            )
+            if not is_meta:
+                explanation = text
+                break
 
     if not explanation:
         print("[Quiz Generator] Warning: no explanation found, generating generic quiz")
